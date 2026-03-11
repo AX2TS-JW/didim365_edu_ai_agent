@@ -1,0 +1,118 @@
+.container {
+	flex: 1;
+	height: 100%;
+	display: flex;
+	flex-flow: column;
+	justify-content: space-between;
+	align-items: center;
+	padding: 152px 0 24px 0;
+
+	.wrapper {
+		display: flex;
+		flex-flow: column;
+		text-align: center;
+		margin: 0 0 60px 0;
+
+		h3 {
+			font-size: 36px;
+			font-family: 'Pretendard';
+			font-style: normal;
+			line-height: 48px;
+			letter-spacing: -0.2px;
+			color: #292D30;
+			margin: 0;
+
+			em {
+				background: linear-gradient(90deg, #7B69F1 0%, #77B1ED 100%);
+				-webkit-text-fill-color: transparent;
+				background-clip: text;
+				-webkit-background-clip: text;
+			}
+		}
+
+		h5 {
+			margin: 20px 0 0 0;
+			font-family: 'Pretendard';
+			font-size: 18px;
+			font-weight: 500;
+			line-height: 24px;
+			letter-spacing: -0.2px;
+			color: #6A6F77;
+		}
+
+	}
+
+	.cardGrid {
+		max-width: 768px;
+		display: flex;
+		flex-flow: column;
+		justify-content: flex-start;
+		gap: 12px;
+
+		h6 {
+			color: black;
+
+			svg {
+				position: relative;
+				top: 6px;
+			}
+
+			span {
+				font-family: 'Pretendard';
+				font-size: 18px;
+				line-height: 24px;
+				letter-spacing: -0.2px;
+				margin-left: 8px;
+			}
+		}
+
+		.grid {
+			gap: 16px;
+		}
+
+		.cardContent {
+			box-sizing: border-box;
+			display: flex;
+			flex-flow: column;
+			overflow: hidden;
+			box-sizing: border-box;
+			min-height: 129px;
+			padding: 20px;
+			border-radius: 8px;
+
+			p {
+				display: -webkit-box;
+				-webkit-box-orient: vertical;
+				-webkit-line-clamp: 3;
+				overflow: hidden;
+			}
+
+			&:hover {
+				cursor: pointer;
+			}
+
+			h6 {
+				font-family: 'Pretendard';
+				font-size: 14px;
+				font-weight: 500;
+				line-height: 20px;
+				letter-spacing: -0.2px;
+				width: fit-content;
+				color: #7B69F1;
+				padding: 4px 8px;
+				border-radius: 4px;
+				background-color: #F0EDFF;
+				margin-bottom: 12px;
+			}
+
+			p {
+				font-family: 'Pretendard';
+				font-size: 16px;
+				font-weight: 500;
+				line-height: 24px;
+				letter-spacing: -0.2px;
+				color: #6A6F77;
+			}
+		}
+	}
+}

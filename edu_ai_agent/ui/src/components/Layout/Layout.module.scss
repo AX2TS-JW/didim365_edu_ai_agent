@@ -1,0 +1,11 @@
+.container{
+  display: flex;
+  min-height: 100vh;
+
+  background: radial-gradient(40% 40% at 40% 90%, rgba(230, 188, 244, 0.25) 0%, rgba(224, 228, 253, 0) 100%);
+  background-color: #ffffff;
+}
+
+main{
+  background: radial-gradient(40% 40% at 60% 90%, rgb(137 188 255 / 35%) 0%, rgba(224, 228, 253, 0) 100%);
+}

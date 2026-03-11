@@ -1,0 +1,32 @@
+.container{
+  width: 100%;
+  min-width: 464px;
+  border-radius: 12px;
+  background-color: #ffffff;
+  border: 1px solid #E0E4E5;
+  box-sizing: border-box;
+
+  .header{
+    display: flex;
+    padding: 20px 20px;
+    align-items: center;
+    justify-content: space-between;  
+    &:hover{
+      cursor: pointer;
+    }
+    
+    .title{
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    h6{
+      font-family: 'Pretendard';
+      font-weight: 600;
+      font-size: 16px;
+    }
+  }
+  .chartArea > div {
+    --Paper-shadow: none !important;
+  }
+}

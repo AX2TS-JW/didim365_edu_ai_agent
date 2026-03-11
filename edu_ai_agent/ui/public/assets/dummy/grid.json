@@ -1,0 +1,23 @@
+{
+  "title": {
+    "text": ""
+  },
+  "dataTable": {
+    "columns": {
+      "ID": [1, 2, 3, 4, 5, 6],
+      "Name": ["Alice", "Bob", "Charlie", "David", "Eve", "John"],
+      "Age": [28, 51, 40, 60, 53, 39],
+      "Department": [
+        "HR",
+        "Engineering",
+        "Sales",
+        "Marketing",
+        "Finance",
+        "Finance"
+      ],
+      "Salary": [50000, 75000, 55000, 85000, 65000, 83000],
+      "PerformanceScore": [85, 49, 95, 40, 88, 73]
+    }
+  }
+}
+

@@ -1,0 +1,50 @@
+.container{
+  width: 100%;
+  min-width: 464px;
+  border-radius: 12px;
+  background-color: #ffffff;
+  border: 1px solid #E0E4E5;
+  box-sizing: border-box;
+
+  .header{
+    display: flex;
+    padding: 20px 20px;
+    align-items: center;
+    justify-content: space-between;
+    
+    &:hover{
+      cursor: pointer;
+    }
+
+    .title{
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    h6{
+      font-family: 'Pretendard';
+      font-weight: 600;
+      font-size: 16px;
+    }
+    .icon{
+      margin-right: 8px;
+      position: relative;
+      &::before{
+        content: "";
+        position: absolute;
+        inset: 0;
+        margin: -8px;
+        background: #F5F5F8;
+        opacity: 0;
+        transition: 0.2s;
+        border-radius: 8px;
+      }
+      &:hover::before {
+        opacity: 1;
+      }
+      svg {
+        z-index: 1;
+      }
+    }
+  }
+}

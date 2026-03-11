@@ -1,0 +1,249 @@
+.container {
+  width: 100%;
+  min-width: 464px;
+  border-radius: 12px;
+  background-color: #ffffff;
+  border: 1px solid #E0E4E5;
+  box-sizing: border-box;
+
+  .header {
+    display: flex;
+    padding: 20px 20px;
+    align-items: center;
+    justify-content: space-between;
+
+    &:hover {
+      cursor: pointer;
+    }
+
+    .title {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    h6 {
+      font-family: 'Pretendard';
+      font-weight: 600;
+      font-size: 16px;
+    }
+  }
+
+  .theme {
+    --hcg-background: #ffffff;
+    --hcg-font-size: 14px;
+    --hcg-color: #F5F5F5;
+    --hcg-padding: 12px 16px;
+    --hcg-border-width: 0;
+    --hcg-border-color: #E5E7EB;
+    --hcg-border-radius: 0;
+
+    --hcg-header-background: #F5F5F5;
+    --hcg-header-color: #374151;
+    --hcg-even-background-color: #f5f5f5;
+
+
+    // 라이트모드로 강제 고정
+    color-scheme: light !important;
+
+    margin-bottom: 10px;
+    height: calc(7 * 48px + 48px); // 최대 10개 행 + 헤더 (각 행 높이 약 48px)
+    overflow-y: auto;
+    overflow-x: hidden;
+    position: relative;
+
+    // 스크롤바 스타일
+    &::-webkit-scrollbar {
+      width: 8px !important;
+      height: 8px !important;
+    }
+
+    &::-webkit-scrollbar-track {
+      background: #f1f1f1 !important;
+      border-radius: 4px !important;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background: #c1c1c1 !important;
+      border-radius: 4px !important;
+      border: none !important;
+
+      &:hover {
+        background: #a8a8a8 !important;
+      }
+
+      &:active {
+        background: #909090 !important;
+      }
+    }
+
+    &::-webkit-scrollbar-corner {
+      background: #f1f1f1 !important;
+    }
+
+    // Firefox 스크롤바 스타일
+    scrollbar-width: thin !important;
+    scrollbar-color: #c1c1c1 #f1f1f1 !important;
+
+    table {
+      border: none;
+      border-radius: 8px;
+      background: none;
+      width: 100%;
+      border-collapse: collapse;
+
+      thead tr {
+        background-color: #F0F0F0;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+
+        th {
+          border-right: 0;
+          border-bottom: 1px solid #C2C6C7;
+          padding: 12px 16px;
+          background-color: #F0F0F0 !important;
+
+          //&:first-child {
+          //  width: 64px !important;
+          //  min-width: 56px !important;
+          //  max-width: 100px !important;
+          //  text-align: center !important;
+          //}
+
+          >div:nth-child(2) {
+            &::after {
+              width: 1px;
+              background-color: #E5E7EB;
+            }
+          }
+        }
+
+        th,
+        th span,
+        th:hover span {
+          font-family: 'Pretendard', sans-serif;
+          font-size: 14px;
+          font-weight: 600;
+          color: #374151 !important;
+          border-color: #C2C6C7;
+
+          button {
+            &:hover {
+              border-color: transparent !important;
+              background-color: #E5E7EB;
+              box-shadow: none !important;
+
+              svg {
+                color: #374151;
+              }
+            }
+
+            &:focus {
+              outline: none;
+              border: none;
+            }
+          }
+        }
+      }
+
+      tbody tr {
+        // border-bottom: 1px solid #E5E7EB;
+        background-color: #ffffff;
+
+        &.hcg-row-even {
+          display: none;
+
+          &:hover {
+            td {
+              background: inherit !important;
+            }
+          }
+        }
+
+        &:nth-child(even) {
+          background-color: #F9FAFB;
+
+          td {
+            background: inherit;
+          }
+        }
+
+        &:nth-child(even):hover td {
+          background-color: #F7F6FF !important;
+        }
+
+        &:last-of-type {
+          td {
+            border-bottom: 1px solid #D1D5DB;
+          }
+        }
+
+        &:hover {
+          background-color: initial !important;
+        }
+
+        td {
+          font-family: 'Pretendard', sans-serif;
+          font-size: 14px;
+          font-weight: 400;
+          border-right: 0;
+          color: #374151 !important;
+          background: inherit !important;
+          border-color: #D1D5DB;
+          padding: 12px 16px;
+          height: 48px;
+
+          //&:first-child {
+          //  width: 56px !important;
+          //  min-width: 56px !important;
+          //  max-width: 100px !important;
+          //  text-align: center !important;
+          //}
+
+        }
+
+        &:hover,
+        td {
+          &:hover {
+            color: #374151 !important;
+            background: initial !important;
+            background-color: #F7F6FF !important;
+          }
+
+          &::before {
+            background: initial !important;
+            background-color: initial !important;
+          }
+
+          &:focus {
+            box-shadow: none;
+          }
+        }
+
+        &:nth-child(2n) {
+          background-color: #F9FAFB;
+
+          &:hover {
+            background-color: #F9FAFB !important;
+          }
+        }
+      }
+    }
+  }
+
+  // Grid-lite 워터마크 제거 (다양한 가능한 선택자)
+  [class*="highcharts-credits"],
+  [class*="hcg-credits"],
+  [class*="credits"],
+  a[href*="highcharts"],
+  .highcharts-logo,
+  .hcg-logo {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+  }
+}

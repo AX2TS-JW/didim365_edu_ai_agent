@@ -1,0 +1,61 @@
+{
+  "name": "agent-edu-template-ui",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --mode development",
+    "build": "tsc && vite build --mode production",
+    "preview": "vite preview",
+    "clean": "npx rimraf dist"
+  },
+  "dependencies": {
+    "@codemirror/lang-sql": "^6.10.0",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@highcharts/grid-lite": "^2.0.1",
+    "@microsoft/fetch-event-source": "^2.0.1",
+    "@mui/icons-material": "^6.5.0",
+    "@mui/material": "^6.5.0",
+    "@mui/x-charts": "^8.14.1",
+    "@tanstack/react-query": "4.36.1",
+    "@uiw/codemirror-theme-aura": "^4.25.3",
+    "@uiw/react-codemirror": "^4.25.3",
+    "axios": "^1.12.2",
+    "highcharts": "^12.4.0",
+    "highcharts-react-official": "^3.2.3",
+    "i18next": "^25.6.3",
+    "jotai": "^2.15.1",
+    "react": "19.2.1",
+    "react-dom": "19.2.1",
+    "react-i18next": "^16.3.5",
+    "react-router-dom": "^7.9.4",
+    "styled-components": "^6.0.7",
+    "uuid": "^13.0.0",
+    "vite-plugin-svgr": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "@types/react": "19.2.1",
+    "@types/react-dom": "19.2.1",
+    "@types/styled-components": "^5.1.26",
+    "@typescript-eslint/eslint-plugin": "5.59.11",
+    "@vitejs/plugin-react": "^4.7.0",
+    "eslint": "8.48.0",
+    "eslint-config-prettier": "8.10.0",
+    "eslint-plugin-react": "7.33.2",
+    "eslint-plugin-react-hooks": "4.6.0",
+    "prettier": "2.8.8",
+    "sass": "^1.94.0",
+    "typescript": "5.2.2",
+    "vite": "^7.1.11",
+    "vite-tsconfig-paths": "4.2.1"
+  },
+  "browserslist": {
+    "production": "Edge >= 18, Firefox >= 60, Chrome >= 61, Safari >= 11, Opera >= 48",
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version"
+    ]
+  }
+}
