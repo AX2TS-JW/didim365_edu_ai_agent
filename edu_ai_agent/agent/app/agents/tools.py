@@ -33,7 +33,37 @@ REGION_CODE_MAP = {
     "수지구": "41465", "기흥구": "41463", "처인구": "41461",
     "수원시": "41110", "고양시": "41280", "용인시": "41460",
     "성남시": "41130", "화성시": "41590", "평택시": "41220",
+    # 부산
+    "해운대구": "26350", "수영구": "26410", "남구": "26300",
+    "동래구": "26260", "부산진구": "26230", "연제구": "26470",
+    "사하구": "26380", "북구": "26320", "금정구": "26290",
+    "사상구": "26530", "기장군": "26710",
+    # 대구
+    "수성구": "27260", "달서구": "27290", "중구(대구)": "27110",
+    "동구(대구)": "27140", "북구(대구)": "27230", "달성군": "27710",
+    # 인천
+    "연수구": "28185", "남동구": "28200", "부평구": "28237",
+    "서구(인천)": "28260", "미추홀구": "28177", "계양구": "28245",
+    # 대전
+    "유성구": "30200", "서구(대전)": "30170", "중구(대전)": "30110",
+    "동구(대전)": "30140", "대덕구": "30230",
+    # 광주
+    "광산구": "29200", "서구(광주)": "29140", "북구(광주)": "29170",
+    "남구(광주)": "29155", "동구(광주)": "29110",
+    # 울산
+    "남구(울산)": "31140", "중구(울산)": "31110", "북구(울산)": "31170",
+    "울주군": "31710",
+    # 세종
+    "세종시": "36110",
 }
+
+
+def _parse_price(price_str: str) -> float | str:
+    """금액 문자열을 만원 단위 숫자로 변환합니다. 소수점·콤마 포함 처리."""
+    try:
+        return float(price_str.replace(",", ""))
+    except (ValueError, AttributeError):
+        return price_str
 
 
 def _resolve_region_code(region: str) -> str | None:
@@ -122,16 +152,22 @@ def search_apartment_trades(region: str, year_month: str) -> str:
         deal_day = (t.get("dealDay") or "?").strip()
         trade_type = (t.get("dealingGbn") or "").strip()
 
-        price_eok = int(price) / 10000 if price.isdigit() else price
+        price_eok = _parse_price(price)
+        if isinstance(price_eok, (int, float)):
+            price_eok = price_eok / 10000
+            price_display = f"{price_eok:.1f}억원"
+        else:
+            price_display = f"{price_eok}만원"
         summaries.append(
             f"- {dong} {apt_name} | {area}㎡ | {floor}층 | "
-            f"{price_eok:.1f}억원 | {year_month[:4]}.{year_month[4:]}.{deal_day}"
+            f"{price_display} | {year_month[:4]}.{year_month[4:]}.{deal_day}"
             + (f" | {trade_type}" if trade_type else "")
         )
 
     total = len(valid_trades)
     header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 매매 실거래가 — 총 {total}건 (상위 10건 표시)\n\n"
-    return header + "\n".join(summaries)
+    footer = "\n\n⚠️ 참고: 실거래가 데이터는 신고 지연이 있어 최근 1~2개월은 데이터가 적을 수 있습니다."
+    return header + "\n".join(summaries) + footer
 
 
 @tool
@@ -200,13 +236,19 @@ def search_apartment_rentals(region: str, year_month: str) -> str:
         deal_day = (t.get("dealDay") or "?").strip()
 
         # 전세/월세 구분
-        deposit_eok = int(deposit) / 10000 if deposit.isdigit() else deposit
+        deposit_val = _parse_price(deposit)
+        if isinstance(deposit_val, (int, float)):
+            deposit_eok = deposit_val / 10000
+            deposit_display = f"{deposit_eok:.1f}억원"
+        else:
+            deposit_display = f"{deposit_val}만원"
+
         if monthly_rent == "0" or monthly_rent == "":
             rent_type = "전세"
-            price_str = f"{deposit_eok:.1f}억원"
+            price_str = deposit_display
         else:
             rent_type = "월세"
-            price_str = f"보증금 {deposit_eok:.1f}억원 / 월 {monthly_rent}만원"
+            price_str = f"보증금 {deposit_display} / 월 {monthly_rent}만원"
 
         summaries.append(
             f"- {dong} {apt_name} | {area}㎡ | {floor}층 | "
@@ -215,4 +257,5 @@ def search_apartment_rentals(region: str, year_month: str) -> str:
 
     total = len(item_list)
     header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 전월세 실거래가 — 총 {total}건 (상위 10건 표시)\n\n"
-    return header + "\n".join(summaries)
+    footer = "\n\n⚠️ 참고: 실거래가 데이터는 신고 지연이 있어 최근 1~2개월은 데이터가 적을 수 있습니다."
+    return header + "\n".join(summaries) + footer
