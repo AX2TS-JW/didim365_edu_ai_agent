@@ -14,6 +14,7 @@ dependencies = [
     "httpx>=0.25.0",
     "opik>=1.10.4",
     "xmltodict>=0.13.0",
+    "elasticsearch>=8.12.0",
 ]
 
 [build-system]

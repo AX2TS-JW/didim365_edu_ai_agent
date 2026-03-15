@@ -1,4 +1,5 @@
 import time
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
@@ -6,10 +7,21 @@ from app.api.routes.threads import threads_router
 from app.api.routes.chat import chat_router
 from app.utils.logger import custom_logger
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup: ES 인덱스 자동 생성
+    from app.core.es_index_setup import ensure_indices
+    ensure_indices()
+    yield
+    # shutdown
+
+
 app = FastAPI(
     title="Edu Agent Template",
     description="LangChain 기반 에이전트 교육용 템플릿",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 api_router = APIRouter(prefix=settings.API_V1_PREFIX)

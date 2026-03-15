@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # 부동산 실거래가 API (data.go.kr)
     DATA_GO_KR_API_KEY: str = ""
 
+    # Elasticsearch
+    ES_URL: str = ""
+    ES_USER: str = ""
+    ES_PASSWORD: str = ""
+
     # 기본 설정 (추가 환경변수가 필요하면 여기에 추가하세요)
 
     # IMP: DeepAgents 라이브러리 실행 시 Graph 에이전트의 최대 재귀 호출 횟수(Recursion Limit) 설정
