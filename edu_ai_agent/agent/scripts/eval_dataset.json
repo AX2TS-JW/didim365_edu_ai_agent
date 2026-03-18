@@ -1,0 +1,58 @@
+[
+  {
+    "input": "강남구 최근 아파트 매매 시세 알려줘",
+    "expected_output": "강남구의 최근 아파트 매매 실거래가 데이터를 조회하여 주요 단지별 거래가격과 평당가를 안내합니다.",
+    "expected_tool": "search_apartment_trades",
+    "expected_region": "강남구",
+    "expected_region_code": "11680"
+  },
+  {
+    "input": "서초구 반포동 아파트 전세 시세 알려줘",
+    "expected_output": "서초구 반포동의 최근 아파트 전세 실거래가를 조회하여 주요 단지별 전세가를 안내합니다.",
+    "expected_tool": "search_apartment_rentals",
+    "expected_region": "서초구",
+    "expected_region_code": "11650"
+  },
+  {
+    "input": "분당구 아파트 매매 실거래가 조회해줘",
+    "expected_output": "분당구의 최근 아파트 매매 실거래가를 조회하여 주요 단지별 거래 내역을 안내합니다.",
+    "expected_tool": "search_apartment_trades",
+    "expected_region": "분당구",
+    "expected_region_code": "41135"
+  },
+  {
+    "input": "역삼동 30평대 아파트 매매가 알려줘",
+    "expected_output": "역삼동의 30평대(전용면적 약 84~99㎡) 아파트 매매 실거래가를 조회하여 안내합니다.",
+    "expected_tool": "search_apartment_trades",
+    "expected_region": "강남구",
+    "expected_region_code": "11680"
+  },
+  {
+    "input": "송파구 아파트 월세 시세 알려줘",
+    "expected_output": "송파구의 최근 아파트 월세 실거래가를 조회하여 주요 단지별 보증금과 월세를 안내합니다.",
+    "expected_tool": "search_apartment_rentals",
+    "expected_region": "송파구",
+    "expected_region_code": "11710"
+  },
+  {
+    "input": "마포구 아파트 전세 시세",
+    "expected_output": "마포구의 최근 아파트 전세 실거래가를 조회하여 안내합니다.",
+    "expected_tool": "search_apartment_rentals",
+    "expected_region": "마포구",
+    "expected_region_code": "11440"
+  },
+  {
+    "input": "용산구 20평대 아파트 매매가",
+    "expected_output": "용산구의 20평대(전용면적 약 59~66㎡) 아파트 매매 실거래가를 안내합니다.",
+    "expected_tool": "search_apartment_trades",
+    "expected_region": "용산구",
+    "expected_region_code": "11170"
+  },
+  {
+    "input": "해운대구 아파트 매매 실거래가 조회해줘",
+    "expected_output": "해운대구의 최근 아파트 매매 실거래가를 조회하여 안내합니다.",
+    "expected_tool": "search_apartment_trades",
+    "expected_region": "해운대구",
+    "expected_region_code": "26350"
+  }
+]
