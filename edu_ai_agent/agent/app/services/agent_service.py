@@ -52,11 +52,18 @@ class AgentService:
 
             custom_logger.info(f"사용자 메시지: {user_messages}")
 
-            # IMP: LangGraph 에이전트에 사용자의 메시지를 HumanMessage 형태로 전달하고, 
+            # Tool 호출 횟수 제한 (무한 루프 방지)
+            MAX_TOOL_CALLS = 3
+            tool_call_count = 0
+
+            # IMP: LangGraph 에이전트에 사용자의 메시지를 HumanMessage 형태로 전달하고,
             # thread_id를 통해 대화 문맥(Context)을 유지하며 비동기 스트리밍(astream)으로 실행하는 구현.
             agent_stream = self.agent.astream(
                 {"messages": [HumanMessage(content=user_messages)]},
-                config={"configurable": {"thread_id": str(thread_id)}},
+                config={
+                    "configurable": {"thread_id": str(thread_id)},
+                    "recursion_limit": settings.DEEPAGENT_RECURSION_LIMIT,
+                },
                 stream_mode="updates",
             )
 
@@ -131,6 +138,19 @@ class AgentService:
                                 else:
                                     yield f'{{"step": "model", "tool_calls": {json.dumps([tool["name"] for tool in tool_calls])}}}'
                             if step == "tools":
+                                # ChatResponse는 Tool 호출 횟수에 포함하지 않음
+                                if message.name != "ChatResponse":
+                                    tool_call_count += 1
+                                    custom_logger.info(f"Tool 호출 횟수: {tool_call_count}/{MAX_TOOL_CALLS}")
+                                    if tool_call_count >= MAX_TOOL_CALLS:
+                                        custom_logger.warning(f"Tool 호출 횟수 초과 ({MAX_TOOL_CALLS}회). 강제 응답 생성.")
+                                        yield f'{{"step": "done", "message_id": "{uuid.uuid4()}", "role": "assistant", "content": "조회 가능한 데이터를 모두 확인했으나, 요청하신 조건에 해당하는 거래 데이터가 없습니다. 다른 지역이나 조건으로 다시 질문해주세요.", "metadata": {{}}, "created_at": "{datetime.utcnow().isoformat()}"}}'
+                                        # 남은 스트림 정리 후 종료
+                                        if progress_task is not None:
+                                            progress_task.cancel()
+                                            with contextlib.suppress(asyncio.CancelledError):
+                                                await progress_task
+                                        return
                                 yield f'{{"step": "tools", "name": {json.dumps(message.name)}, "content": {message.content}}}'
                     except Exception as e:
                         # 청크 처리 중 예외 발생

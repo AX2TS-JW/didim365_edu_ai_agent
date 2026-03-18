@@ -62,7 +62,6 @@ def create_real_estate_agent(checkpointer=None):
         system_prompt=system_prompt,
         response_format=ToolStrategy(ChatResponse),
         checkpointer=checkpointer,
-        recursion_limit=settings.DEEPAGENT_RECURSION_LIMIT,
     )
 
     return agent
