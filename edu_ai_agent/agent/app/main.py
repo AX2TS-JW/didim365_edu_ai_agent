@@ -10,6 +10,17 @@ from app.utils.logger import custom_logger
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # startup: Opik 초기화
+    opik_settings = settings.OPIK
+    if opik_settings and opik_settings.URL_OVERRIDE:
+        import os
+        os.environ["OPIK_URL_OVERRIDE"] = opik_settings.URL_OVERRIDE
+        os.environ["OPIK_WORKSPACE"] = opik_settings.WORKSPACE or "default"
+        os.environ["OPIK_PROJECT_NAME"] = opik_settings.PROJECT or "default"
+        if opik_settings.API_KEY:
+            os.environ["OPIK_API_KEY"] = opik_settings.API_KEY
+        custom_logger.info(f"Opik 연결 완료: {opik_settings.URL_OVERRIDE}")
+
     # startup: ES 인덱스 자동 생성
     from app.core.es_index_setup import ensure_indices
     ensure_indices()

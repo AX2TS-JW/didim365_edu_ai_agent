@@ -7,7 +7,7 @@ LangChain create_agent()를 사용하여 에이전트를 생성합니다.
 - https://docs.langchain.com/oss/python/langchain/agents → Creating Agents, Structured Output > ToolStrategy
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
@@ -29,7 +29,7 @@ class ChatResponse:
     """
     message_id: str     # UUID 형식
     content: str        # 사용자에게 보여줄 답변 텍스트
-    metadata: dict      # sql, data, chart 등 부가 정보
+    metadata: dict = field(default_factory=dict)  # sql, data, chart 등 부가 정보
 
 
 def create_real_estate_agent(checkpointer=None):
@@ -62,6 +62,7 @@ def create_real_estate_agent(checkpointer=None):
         system_prompt=system_prompt,
         response_format=ToolStrategy(ChatResponse),
         checkpointer=checkpointer,
+        recursion_limit=settings.DEEPAGENT_RECURSION_LIMIT,
     )
 
     return agent

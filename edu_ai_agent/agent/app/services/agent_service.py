@@ -9,6 +9,8 @@ from app.utils.logger import log_execution, custom_logger
 
 from langchain_core.messages import HumanMessage
 from langgraph.errors import GraphRecursionError
+from opik.integrations.langchain import track_langgraph, OpikTracer
+from app.core.config import settings
 
 
 class AgentService:
@@ -29,7 +31,16 @@ class AgentService:
         if self.checkpointer is None:
             self.checkpointer = InMemorySaver()
 
-        self.agent = create_real_estate_agent(checkpointer=self.checkpointer)
+        agent = create_real_estate_agent(checkpointer=self.checkpointer)
+
+        # Opik 트레이싱: 에이전트 실행 과정을 자동 기록
+        opik_settings = settings.OPIK
+        if opik_settings and opik_settings.PROJECT:
+            tracer = OpikTracer(project_name=opik_settings.PROJECT)
+            self.agent = track_langgraph(agent, opik_tracer=tracer)
+            custom_logger.info(f"Opik 트레이싱 활성화: project={opik_settings.PROJECT}")
+        else:
+            self.agent = agent
 
     # 실제 대화 로직
     @log_execution
