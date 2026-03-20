@@ -77,7 +77,7 @@ _SENSITIVE_PHRASES = [
     "부동산 실거래가 분석 전문 AI 어시스턴트",
     "search_apartment_trades",
     "search_apartment_rentals",
-    "Tool 호출은 최대 3회",
+    "Tool 호출은 최대 5회",
     "Tool 선택 기준",
     "cdealType",
     "ChatResponse",

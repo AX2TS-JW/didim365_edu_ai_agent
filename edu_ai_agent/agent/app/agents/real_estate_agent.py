@@ -15,7 +15,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.prompts import system_prompt
-from app.agents.tools import search_apartment_trades, search_apartment_rentals
+from app.agents.tools import search_apartment_trades, search_apartment_rentals, calculate_jeonse_ratio
 from app.core.config import settings
 
 
@@ -58,7 +58,7 @@ def create_real_estate_agent(checkpointer=None):
     # [Step 7] 에이전트 조립
     agent = create_agent(
         model=model,
-        tools=[search_apartment_trades, search_apartment_rentals],
+        tools=[search_apartment_trades, search_apartment_rentals, calculate_jeonse_ratio],
         system_prompt=system_prompt,
         response_format=ToolStrategy(ChatResponse),
         checkpointer=checkpointer,

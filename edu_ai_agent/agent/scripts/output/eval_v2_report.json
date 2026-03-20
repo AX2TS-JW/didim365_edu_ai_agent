@@ -1,0 +1,226 @@
+{
+  "summary": {
+    "total_cases": 10,
+    "overall_score": 0.9,
+    "by_category": {
+      "단순 조회": 1.0,
+      "비교 분석": 0.917,
+      "추론 필요": 1.0,
+      "엣지 케이스": 0.625
+    }
+  },
+  "results": [
+    {
+      "id": "S01",
+      "category": "단순 조회",
+      "input": "강남구 최근 아파트 매매 시세 알려줘",
+      "expected_tool": "search_apartment_trades",
+      "agent_answer": "강남구 2026년 3월 아파트 매매 실거래가 상위 10건을 안내드립니다.\n\n- 대치동 래미안대치팰리스 (151.31㎡, 10층): 65.0억원 (평당 약 1.42억원)\n- 청담동 청담린든그로브 (203.88㎡, 2층): 51.0억원 (평당 약 0.83억원)\n- 대치동 래미안대치팰리스 (84.97㎡, 4층): 41.9억원 (평당 약 1.63억원)\n- 대치동 래미안대치팰리스 (84.97㎡, 12층): 41.5억원 (평당 약 1.62억원)\n- 대치동 대치우성아파트 (115.59㎡, 9층): 40.7억원 (평당 약 1.16억원)\n- 도곡동 도곡쌍용예가 (142.77㎡, 7층): 33.0억원 (평당 약 0.76억원)\n- 도곡동 대림아크로빌 (172.46㎡, 24층): 29.6억원 (평당 약 0.57억원)\n- 청담동 청담우방아파트 (118.53㎡, 11층): 26.8억원 (평당 약 0.75억원)\n- 자곡동 래미안강남힐즈 (101.94㎡, 9층): 23.8억원 (평당 약 0.77억원)\n- 대치동",
+      "tool_calls": [
+        "Planning",
+        "search_apartment_trades"
+      ],
+      "tool_contents_count": 0,
+      "elapsed_seconds": 10.4,
+      "checks": {
+        "has_answer": true,
+        "tool_selection": true,
+        "response_time": true,
+        "within_call_limit": true
+      },
+      "score": 1.0
+    },
+    {
+      "id": "S02",
+      "category": "단순 조회",
+      "input": "송파구 아파트 월세 시세 알려줘",
+      "expected_tool": "search_apartment_rentals",
+      "agent_answer": "송파구 2026년 3월 아파트 월세 시세를 알려드리겠습니다.\n\n- 월세 거래 예시:\n  - 방이동 올림픽선수기자촌1단지 (131.76㎡): 보증금 11.0억원, 월세 113만원\n  - 잠실동 트리지움 (84.83㎡): 보증금 10.0억원, 월세 60만원\n\n- 매매 시세 예시:\n  - 잠실동 주공아파트 5단지 (82.61㎡): 43.9억원 (평당 약 1.75억원)\n  - 잠실동 잠실엘스 (119.93㎡): 38.0억원 (평당 약 1.04억원)\n\n- 전세가율은 약 44.2%로, 매매가 대비 전세가가 낮은 편입니다.\n\n월세 시세는 면적과 단지에 따라 차이가 크니, 구체적인 매물 조건에 따라 변동될 수 있습니다. 추가로 궁금한 점 있으시면 알려주세요.",
+      "tool_calls": [
+        "Planning",
+        "search_apartment_rentals",
+        "search_apartment_trades",
+        "calculate_jeonse_ratio"
+      ],
+      "tool_contents_count": 0,
+      "elapsed_seconds": 9.3,
+      "checks": {
+        "has_answer": true,
+        "tool_selection": true,
+        "response_time": true,
+        "within_call_limit": true
+      },
+      "score": 1.0
+    },
+    {
+      "id": "S03",
+      "category": "단순 조회",
+      "input": "마포구 아파트 전세 시세",
+      "expected_tool": "search_apartment_rentals",
+      "agent_answer": "마포구 2026년 3월 아파트 전세 시세를 알려드리겠습니다.\n\n- 주요 전세 거래 사례:\n  - 서교동 메세나폴리스 (142.03㎡) 전세 19억원\n  - 아현동 공덕자이 (115㎡) 전세 13억원\n  - 신수동 대원칸타빌 (117㎡) 전세 12억원\n  - 현석동 래미안웰스트림 (85㎡) 전세 11억원\n  - 상암동 상암월드컵파크6단지 (104㎡) 전세 8억원\n\n- 평균 전세가는 약 8.4억원이며, 평균 매매가는 약 11.9억원입니다.\n- 전세가율은 약 70.7%로, 전세가가 매매가의 70% 이상으로 높은 편입니다.\n- 매매-전세 갭은 약 3.5억원으로, 전세와 매매 가격 차이가 크지 않아 매매 전환도 고려할 만한 상황입니다.\n\n필요하시면 특정 단지나 면적별 상세 전세 시세도 추가로 알려드릴 수 있습니다.",
+      "tool_calls": [
+        "Planning",
+        "search_apartment_rentals",
+        "search_apartment_trades",
+        "calculate_jeonse_ratio"
+      ],
+      "tool_contents_count": 0,
+      "elapsed_seconds": 11.0,
+      "checks": {
+        "has_answer": true,
+        "tool_selection": true,
+        "response_time": true,
+        "within_call_limit": true
+      },
+      "score": 1.0
+    },
+    {
+      "id": "C01",
+      "category": "비교 분석",
+      "input": "강남구랑 송파구 매매가 비교해줘",
+      "expected_tool": "both_trades",
+      "agent_answer": "2026년 3월 기준으로 강남구와 송파구 아파트 매매 실거래가를 비교해드리겠습니다.\n\n■ 강남구 주요 매매 실거래가 (상위 10건 중 일부)\n- 대치동 래미안대치팰리스 151.31㎡: 65.0억원 (평당 약 14,183만원)\n- 청담동 청담린든그로브 203.88㎡: 51.0억원 (평당 약 8,252만원)\n- 대치동 래미안대치팰리스 84.97㎡: 41.9억원 (평당 약 16,263만원)\n- 대치동 대치우성아파트 115.59㎡: 40.7억원 (평당 약 11,628만원)\n\n■ 송파구 주요 매매 실거래가 (상위 10건 중 일부)\n- 잠실동 주공아파트 5단지 82.61㎡: 43.9억원 (평당 약 17,556만원)\n- 잠실동 잠실엘스 119.93㎡: 38.0억원 (평당 약 10,466만원)\n- 잠실동 트리지움 114.7㎡: 34.5억원 (평당 약 9,933만원)\n- 잠실동 레이크팰리스 84.82㎡: 32.5억원 (평당 약 12,642만원)\n\n요약:\n- 강남구는 대형 평형 위주로 고가 거래가 많",
+      "tool_calls": [
+        "Planning",
+        "search_apartment_trades",
+        "search_apartment_trades"
+      ],
+      "tool_contents_count": 0,
+      "elapsed_seconds": 10.2,
+      "checks": {
+        "has_answer": true,
+        "tool_selection": true,
+        "response_time": true,
+        "within_call_limit": true
+      },
+      "score": 1.0
+    },
+    {
+      "id": "C02",
+      "category": "비교 분석",
+      "input": "서초구 매매가랑 전세가 같이 알려줘",
+      "expected_tool": "both",
+      "agent_answer": "서초구 2026년 3월 아파트 매매가와 전세가 현황입니다.\n\n- 평균 매매가: 약 21.0억원\n- 평균 전세가: 약 13.4억원\n- 전세가율: 약 63.5%\n- 매매-전세 갭: 약 7.7억원\n\n전세가율이 50~70%로 보통 수준이며, 갭도 적당하여 자금 여력에 따라 매매 또는 전세 선택이 가능합니다. 단지나 면적, 층수에 따라 차이가 있을 수 있으니 참고 바랍니다.",
+      "tool_calls": [
+        "Planning",
+        "calculate_jeonse_ratio"
+      ],
+      "tool_contents_count": 0,
+      "elapsed_seconds": 6.3,
+      "checks": {
+        "has_answer": true,
+        "tool_selection": false,
+        "response_time": true,
+        "within_call_limit": true
+      },
+      "score": 0.75
+    },
+    {
+      "id": "C03",
+      "category": "비교 분석",
+      "input": "용산구 작년 이맘때랑 지금 매매가 비교해줘",
+      "expected_tool": "search_apartment_trades",
+      "agent_answer": "용산구 2022년 3월과 2026년 3월 아파트 매매 실거래가를 비교해드리겠습니다.\n\n- 2022년 3월 주요 거래 사례:\n  - 한남동 한남더힐 177.764㎡: 57.0억원 (평당 약 10,572만원)\n  - 이촌동 현대맨숀 139.97㎡: 24.5억원 (평당 약 5,783만원)\n  - 한강로3가 한강자이에클라트 82.28㎡: 15.3억원 (평당 약 6,139만원)\n\n- 2026년 3월 주요 거래 사례:\n  - 이촌동 강촌 84.85㎡: 28.6억원 (평당 약 11,134만원)\n  - 원효로1가 용산더프라임 142.901㎡: 25.6억원 (평당 약 5,918만원)\n  - 한남동 시범 59.5㎡: 11.6억원 (평당 약 6,432만원)\n\n요약:\n- 평당가 기준으로 보면 일부 단지에서 2022년 3월 대비 2026년 3월에 매매가가 상승한 경향이 있습니다.\n- 다만 단지별, 면적별 차이가 크므로 특정 단지나 면적을 지정해주시면 더 정확한 비교가 가능합니다.\n\n필요하시면 추가로 특정 ",
+      "tool_calls": [
+        "Planning",
+        "search_apartment_trades",
+        "search_apartment_trades"
+      ],
+      "tool_contents_count": 0,
+      "elapsed_seconds": 15.3,
+      "checks": {
+        "has_answer": true,
+        "tool_selection": true,
+        "response_time": true,
+        "within_call_limit": true
+      },
+      "score": 1.0
+    },
+    {
+      "id": "R01",
+      "category": "추론 필요",
+      "input": "강남구 전세가율이 어느 정도야?",
+      "expected_tool": "calculate_jeonse_ratio",
+      "agent_answer": "강남구 2026년 3월 기준 아파트 전세가율은 약 44.2%입니다. 평균 매매가는 20.5억원, 평균 전세가는 9.1억원으로, 매매가 대비 전세가가 낮은 편입니다. 전세가율이 50% 미만이라 전세로 거주하는 것이 자금 효율적일 수 있습니다. 단지별로 차이는 있을 수 있으니 참고 바랍니다.",
+      "tool_calls": [
+        "Planning",
+        "calculate_jeonse_ratio"
+      ],
+      "tool_contents_count": 0,
+      "elapsed_seconds": 6.6,
+      "checks": {
+        "has_answer": true,
+        "tool_selection": true,
+        "response_time": true,
+        "within_call_limit": true
+      },
+      "score": 1.0
+    },
+    {
+      "id": "R02",
+      "category": "추론 필요",
+      "input": "송파구에서 지금 전세 살다가 매매로 갈아타는 게 나을까?",
+      "expected_tool": "calculate_jeonse_ratio",
+      "agent_answer": "송파구 2026년 3월 기준으로 전세가율은 약 44.2%로, 매매가 대비 전세가가 낮은 편입니다. 평균 매매가는 약 17.9억원, 평균 전세가는 약 7.9억원입니다. 이는 전세로 거주하는 것이 자금 효율적일 수 있음을 의미합니다.\n\n최근 매매 실거래가를 보면, 예를 들어 잠실동 주공아파트 5단지 82.61㎡가 43.9억원, 잠실동 잠실엘스 119.93㎡가 38억원에 거래되고 있습니다. 전세 실거래가로는 잠실동 리센츠 84.99㎡가 11.4~14억원, 가락동 헬리오시티 84.95㎡가 11.3억원 수준입니다.\n\n결론적으로, 현재 송파구에서는 전세가율이 낮아 전세로 거주하는 것이 자금 부담이 적고 효율적입니다. 매매로 갈아타는 경우 초기 자금 부담이 크고 갭(매매가와 전세가 차이)도 약 10억원으로 상당한 편입니다. 따라서 자금 여유가 충분하지 않다면 당장은 전세 거주를 유지하는 것이 나을 수 있습니다.\n\n더 구체적인 단지나 면적, 예산에 따른 상담이 필요하면 알려주세요.",
+      "tool_calls": [
+        "Planning",
+        "calculate_jeonse_ratio",
+        "search_apartment_trades",
+        "search_apartment_rentals"
+      ],
+      "tool_contents_count": 0,
+      "elapsed_seconds": 18.3,
+      "checks": {
+        "has_answer": true,
+        "tool_selection": true,
+        "response_time": true,
+        "within_call_limit": true
+      },
+      "score": 1.0
+    },
+    {
+      "id": "E01",
+      "category": "엣지 케이스",
+      "input": "판교 아파트 시세 알려줘",
+      "expected_tool": "search_apartment_trades",
+      "agent_answer": "조회 가능한 데이터를 모두 확인했으나, 요청하신 조건에 해당하는 거래 데이터가 없습니다. 다른 지역이나 조건으로 다시 질문해주세요.",
+      "tool_calls": [
+        "Planning",
+        "search_apartment_trades",
+        "search_apartment_trades",
+        "search_apartment_trades",
+        "search_apartment_trades",
+        "search_apartment_trades"
+      ],
+      "tool_contents_count": 0,
+      "elapsed_seconds": 6.1,
+      "checks": {
+        "has_answer": false,
+        "tool_selection": true,
+        "response_time": true,
+        "within_call_limit": false
+      },
+      "score": 0.5
+    },
+    {
+      "id": "E02",
+      "category": "엣지 케이스",
+      "input": "최근 아파트 시세 알려줘",
+      "expected_tool": null,
+      "agent_answer": "어느 지역의 아파트 시세를 조회할까요? 시군구 단위로 알려주세요.",
+      "tool_calls": [
+        "Planning",
+        "search_apartment_trades"
+      ],
+      "tool_contents_count": 0,
+      "elapsed_seconds": 3.4,
+      "checks": {
+        "has_answer": true,
+        "tool_selection": false,
+        "response_time": true,
+        "within_call_limit": true
+      },
+      "score": 0.75
+    }
+  ]
+}

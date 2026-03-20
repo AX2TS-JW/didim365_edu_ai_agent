@@ -9,7 +9,8 @@
 - https://docs.langchain.com/oss/python/langchain/agents → Tools Management > Static Tools
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from dateutil.relativedelta import relativedelta
 
 import httpx
 import xmltodict
@@ -96,8 +97,44 @@ def _parse_price(price_str: str) -> float | str:
 # ES 캐시 조회 / 저장
 # ──────────────────────────────────────────────────────────
 
+# 캐시 TTL: 현재 월 데이터는 신고 지연으로 계속 추가되므로 짧게,
+# 과거 월 데이터는 변동이 적으므로 길게 설정
+_CACHE_TTL_CURRENT_MONTH = timedelta(hours=6)
+_CACHE_TTL_PAST_MONTH = timedelta(days=7)
+
+
+def _is_cache_expired(hits: list, year_month: str) -> bool:
+    """캐시 데이터의 fetched_at을 확인하여 TTL 초과 여부를 판단합니다."""
+    current_ym = datetime.now().strftime("%Y%m")
+    ttl = _CACHE_TTL_CURRENT_MONTH if year_month >= current_ym else _CACHE_TTL_PAST_MONTH
+
+    # 가장 최근 fetched_at 기준으로 판단
+    latest_fetched = None
+    for h in hits:
+        fetched_at = h.get("fetched_at")
+        if not fetched_at:
+            continue
+        try:
+            dt = datetime.fromisoformat(fetched_at.replace("Z", "+00:00"))
+            if latest_fetched is None or dt > latest_fetched:
+                latest_fetched = dt
+        except (ValueError, AttributeError):
+            continue
+
+    if latest_fetched is None:
+        return True  # fetched_at 없으면 만료 처리
+
+    age = datetime.now(timezone.utc) - latest_fetched
+    if age > ttl:
+        custom_logger.info(
+            f"캐시 TTL 초과: year_month={year_month}, age={age}, ttl={ttl}"
+        )
+        return True
+    return False
+
+
 def _search_trades_from_es(region_code: str, year_month: str) -> list | None:
-    """ES에서 매매 거래 데이터를 조회합니다."""
+    """ES에서 매매 거래 데이터를 조회합니다. TTL 초과 시 None 반환(API 재호출 유도)."""
     if es_client is None:
         return None
     try:
@@ -115,7 +152,10 @@ def _search_trades_from_es(region_code: str, year_month: str) -> list | None:
         hits = result["hits"]["hits"]
         if not hits:
             return None
-        return [h["_source"] for h in hits]
+        sources = [h["_source"] for h in hits]
+        if _is_cache_expired(sources, year_month):
+            return None  # TTL 초과 → 캐시 미스 처리 → API 재호출
+        return sources
     except Exception as e:
         custom_logger.error(f"ES 매매 데이터 조회 실패: {e}")
         return None
@@ -153,7 +193,7 @@ def _save_trades_to_es(items: list, region_code: str, year_month: str):
 
 
 def _search_rentals_from_es(region_code: str, year_month: str) -> list | None:
-    """ES에서 전월세 거래 데이터를 조회합니다."""
+    """ES에서 전월세 거래 데이터를 조회합니다. TTL 초과 시 None 반환(API 재호출 유도)."""
     if es_client is None:
         return None
     try:
@@ -171,7 +211,10 @@ def _search_rentals_from_es(region_code: str, year_month: str) -> list | None:
         hits = result["hits"]["hits"]
         if not hits:
             return None
-        return [h["_source"] for h in hits]
+        sources = [h["_source"] for h in hits]
+        if _is_cache_expired(sources, year_month):
+            return None  # TTL 초과 → 캐시 미스 처리 → API 재호출
+        return sources
     except Exception as e:
         custom_logger.error(f"ES 전월세 데이터 조회 실패: {e}")
         return None
@@ -389,12 +432,69 @@ def _format_rentals(rentals: list, region: str, region_code: str, year_month: st
 
 
 # ──────────────────────────────────────────────────────────
+# 자동 월 탐색: 데이터 없으면 최대 6개월 이전까지 자동 탐색
+# ──────────────────────────────────────────────────────────
+
+MAX_AUTO_SEARCH_MONTHS = 6
+
+
+def _prev_year_month(ym: str) -> str:
+    """YYYYMM 형식에서 1개월 이전을 반환합니다."""
+    dt = datetime(int(ym[:4]), int(ym[4:]), 1) - relativedelta(months=1)
+    return dt.strftime("%Y%m")
+
+
+def _search_trades_with_fallback(region_code: str, year_month: str) -> tuple[list | None, str, bool]:
+    """매매 데이터를 조회하되, 없으면 최대 6개월 이전까지 자동 탐색합니다.
+
+    Returns:
+        (데이터 리스트 또는 None, 실제 조회된 year_month, ES 캐시 여부)
+    """
+    ym = year_month
+    for i in range(MAX_AUTO_SEARCH_MONTHS):
+        # ES 캐시
+        cached = _search_trades_from_es(region_code, ym)
+        if cached is not None:
+            return cached, ym, True
+        # API
+        raw = _fetch_trades_from_api(region_code, ym)
+        if isinstance(raw, str):
+            return None, ym, False  # API 에러
+        if raw:
+            _save_trades_to_es(raw, region_code, ym)
+            return raw, ym, False
+        # 데이터 없으면 이전 월로
+        custom_logger.info(f"매매 데이터 없음: {region_code}/{ym} → 이전 월 탐색 ({i+1}/{MAX_AUTO_SEARCH_MONTHS})")
+        ym = _prev_year_month(ym)
+    return None, ym, False
+
+
+def _search_rentals_with_fallback(region_code: str, year_month: str) -> tuple[list | None, str, bool]:
+    """전월세 데이터를 조회하되, 없으면 최대 6개월 이전까지 자동 탐색합니다."""
+    ym = year_month
+    for i in range(MAX_AUTO_SEARCH_MONTHS):
+        cached = _search_rentals_from_es(region_code, ym)
+        if cached is not None:
+            return cached, ym, True
+        raw = _fetch_rentals_from_api(region_code, ym)
+        if isinstance(raw, str):
+            return None, ym, False
+        if raw:
+            _save_rentals_to_es(raw, region_code, ym)
+            return raw, ym, False
+        custom_logger.info(f"전월세 데이터 없음: {region_code}/{ym} → 이전 월 탐색 ({i+1}/{MAX_AUTO_SEARCH_MONTHS})")
+        ym = _prev_year_month(ym)
+    return None, ym, False
+
+
+# ──────────────────────────────────────────────────────────
 # @tool 함수 (LangChain 에이전트가 호출)
 # ──────────────────────────────────────────────────────────
 
 @tool
 def search_apartment_trades(region: str, year_month: str) -> str:
     """아파트 매매 실거래가를 조회합니다.
+    해당 월에 데이터가 없으면 최대 6개월 이전까지 자동으로 탐색합니다.
 
     Args:
         region: 시군구 이름 (예: "강남구", "분당구", "송파구")
@@ -407,29 +507,21 @@ def search_apartment_trades(region: str, year_month: str) -> str:
     if not region_code:
         return f"'{region}'에 해당하는 지역코드를 찾을 수 없습니다. 시군구 단위로 입력해주세요. (예: 강남구, 분당구)"
 
-    # 1) ES 캐시 조회
-    cached = _search_trades_from_es(region_code, year_month)
-    if cached is not None:
-        custom_logger.info(f"ES 캐시 히트: trades {region_code}/{year_month}")
-        return _format_trades(cached, region, region_code, year_month, from_es=True)
+    data, actual_ym, from_es = _search_trades_with_fallback(region_code, year_month)
 
-    # 2) API 호출
-    raw_items = _fetch_trades_from_api(region_code, year_month)
-    if isinstance(raw_items, str):
-        return raw_items  # 에러 메시지
-    if not raw_items:
-        return f"{region} {year_month} 기간에 거래 내역이 없습니다."
+    if data is None:
+        return f"{region} 최근 {MAX_AUTO_SEARCH_MONTHS}개월간 매매 거래 내역이 없습니다."
 
-    # 3) ES에 저장
-    _save_trades_to_es(raw_items, region_code, year_month)
-
-    # 4) 포맷팅 반환
-    return _format_trades(raw_items, region, region_code, year_month, from_es=False)
+    result = _format_trades(data, region, region_code, actual_ym, from_es=from_es)
+    if actual_ym != year_month:
+        result = f"⚠️ {year_month[:4]}년 {year_month[4:]}월에는 데이터가 없어 {actual_ym[:4]}년 {actual_ym[4:]}월 데이터를 조회했습니다.\n\n" + result
+    return result
 
 
 @tool
 def search_apartment_rentals(region: str, year_month: str) -> str:
     """아파트 전월세 실거래가를 조회합니다.
+    해당 월에 데이터가 없으면 최대 6개월 이전까지 자동으로 탐색합니다.
 
     Args:
         region: 시군구 이름 (예: "강남구", "분당구", "송파구")
@@ -442,21 +534,123 @@ def search_apartment_rentals(region: str, year_month: str) -> str:
     if not region_code:
         return f"'{region}'에 해당하는 지역코드를 찾을 수 없습니다. 시군구 단위로 입력해주세요. (예: 강남구, 분당구)"
 
-    # 1) ES 캐시 조회
-    cached = _search_rentals_from_es(region_code, year_month)
-    if cached is not None:
-        custom_logger.info(f"ES 캐시 히트: rentals {region_code}/{year_month}")
-        return _format_rentals(cached, region, region_code, year_month, from_es=True)
+    data, actual_ym, from_es = _search_rentals_with_fallback(region_code, year_month)
 
-    # 2) API 호출
-    raw_items = _fetch_rentals_from_api(region_code, year_month)
-    if isinstance(raw_items, str):
-        return raw_items
-    if not raw_items:
-        return f"{region} {year_month} 기간에 전월세 거래 내역이 없습니다."
+    if data is None:
+        return f"{region} 최근 {MAX_AUTO_SEARCH_MONTHS}개월간 전월세 거래 내역이 없습니다."
 
-    # 3) ES에 저장
-    _save_rentals_to_es(raw_items, region_code, year_month)
+    result = _format_rentals(data, region, region_code, actual_ym, from_es=from_es)
+    if actual_ym != year_month:
+        result = f"⚠️ {year_month[:4]}년 {year_month[4:]}월에는 데이터가 없어 {actual_ym[:4]}년 {actual_ym[4:]}월 데이터를 조회했습니다.\n\n" + result
+    return result
 
-    # 4) 포맷팅 반환
-    return _format_rentals(raw_items, region, region_code, year_month, from_es=False)
+
+# ──────────────────────────────────────────────────────────
+# 전세가율 계산 내부 함수
+# ──────────────────────────────────────────────────────────
+
+def _get_trades_data(region_code: str, year_month: str) -> list:
+    """매매 데이터를 자동 탐색으로 가져옵니다 (내부용)."""
+    data, actual_ym, from_es = _search_trades_with_fallback(region_code, year_month)
+    if data is None:
+        return []
+    if from_es:
+        return data
+    # API 원본을 ES 필드명으로 변환
+    return [
+        {
+            "apt_name": (item.get("aptNm") or "").strip(),
+            "deal_amount": int(float((item.get("dealAmount") or "0").strip().replace(",", "") or 0)),
+            "exclu_use_ar": float((item.get("excluUseAr") or "0").strip() or 0),
+            "umd_name": (item.get("umdNm") or "").strip(),
+            "cdeal_type": (item.get("cdealType") or "").strip(),
+        }
+        for item in data
+    ]
+
+
+def _get_rentals_data(region_code: str, year_month: str) -> list:
+    """전월세 데이터를 자동 탐색으로 가져옵니다 (내부용)."""
+    data, actual_ym, from_es = _search_rentals_with_fallback(region_code, year_month)
+    if data is None:
+        return []
+    if from_es:
+        return data
+    return [
+        {
+            "apt_name": (item.get("aptNm") or "").strip(),
+            "deposit": int(float((item.get("deposit") or "0").strip().replace(",", "") or 0)),
+            "monthly_rent": int(float((item.get("monthlyRent") or "0").strip().replace(",", "") or 0)),
+            "exclu_use_ar": float((item.get("excluUseAr") or "0").strip() or 0),
+            "umd_name": (item.get("umdNm") or "").strip(),
+        }
+        for item in data
+    ]
+
+
+@tool
+def calculate_jeonse_ratio(region: str, year_month: str) -> str:
+    """특정 지역의 전세가율(전세가/매매가 비율)을 계산합니다.
+    매매와 전세 데이터를 한 번에 조회하여 전세가율, 매매-전세 갭, 매매/전세 판단 근거를 제공합니다.
+
+    Args:
+        region: 시군구 이름 (예: "강남구", "분당구", "송파구")
+        year_month: 조회할 년월 (예: "202501", "202412")
+
+    Returns:
+        전세가율 분석 결과 (평균 매매가, 평균 전세가, 전세가율, 갭, 판단 근거)
+    """
+    region_code = _resolve_region_code(region)
+    if not region_code:
+        return f"'{region}'에 해당하는 지역코드를 찾을 수 없습니다. 시군구 단위로 입력해주세요."
+
+    # 매매 데이터 조회
+    trades = _get_trades_data(region_code, year_month)
+    # 해제 거래 필터링
+    trades = [t for t in trades if not t.get("cdeal_type")]
+
+    # 전세 데이터 조회 (월세 제외, 전세만)
+    rentals = _get_rentals_data(region_code, year_month)
+    jeonse_only = [r for r in rentals if r.get("monthly_rent", 0) == 0 and r.get("deposit", 0) > 0]
+
+    if not trades:
+        return f"{region} {year_month} 기간에 매매 거래 데이터가 없어 전세가율을 계산할 수 없습니다."
+    if not jeonse_only:
+        return f"{region} {year_month} 기간에 전세 거래 데이터가 없어 전세가율을 계산할 수 없습니다."
+
+    # 평균 매매가 (만원)
+    avg_trade = sum(t["deal_amount"] for t in trades) / len(trades)
+    # 평균 전세가 (만원)
+    avg_jeonse = sum(r["deposit"] for r in jeonse_only) / len(jeonse_only)
+
+    # 전세가율
+    ratio = (avg_jeonse / avg_trade * 100) if avg_trade > 0 else 0
+    # 갭 (매매가 - 전세가)
+    gap = avg_trade - avg_jeonse
+
+    # 판단 근거
+    if ratio >= 70:
+        judgment = "전세가율이 70% 이상으로 높은 편입니다. 전세가와 매매가의 차이(갭)가 작아 매매 전환을 고려해볼 만합니다."
+    elif ratio >= 50:
+        judgment = "전세가율이 50~70% 수준으로 보통입니다. 갭이 적당하여 자금 여력에 따라 매매/전세를 선택할 수 있습니다."
+    else:
+        judgment = "전세가율이 50% 미만으로 낮은 편입니다. 매매가 대비 전세가가 낮아 전세로 거주하는 것이 자금 효율적일 수 있습니다."
+
+    # 결과 포맷팅
+    result = f"""📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 전세가율 분석
+
+■ 매매 데이터: {len(trades)}건
+  평균 매매가: {avg_trade/10000:.1f}억원
+
+■ 전세 데이터: {len(jeonse_only)}건 (전세만, 월세 제외)
+  평균 전세가: {avg_jeonse/10000:.1f}억원
+
+■ 전세가율: {ratio:.1f}%
+  매매-전세 갭: {gap/10000:.1f}억원
+
+■ 판단 근거
+  {judgment}
+
+⚠️ 참고: 전세가율은 평균값 기반이며, 단지·면적·층수별로 차이가 있을 수 있습니다."""
+
+    return result

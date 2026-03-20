@@ -49,13 +49,13 @@ class ToolUsageMetric:
                 "detail": f"expected={expected_tool}, actual={called_tools}",
             })
 
-        # 2. 호출 횟수 제한 (최대 3회)
+        # 2. 호출 횟수 제한 (최대 5회)
         actual_tool_count = len([t for t in called_tools if "ChatResponse" not in t])
-        within_limit = actual_tool_count <= 3
+        within_limit = actual_tool_count <= 5
         checks.append({
             "name": "call_limit",
             "pass": within_limit,
-            "detail": f"{actual_tool_count}/3회 사용",
+            "detail": f"{actual_tool_count}/5회 사용",
         })
 
         # 3. 중복 호출 체크

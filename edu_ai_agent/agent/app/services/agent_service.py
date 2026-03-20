@@ -53,8 +53,14 @@ class AgentService:
             custom_logger.info(f"사용자 메시지: {user_messages}")
 
             # Tool 호출 횟수 제한 (무한 루프 방지)
-            MAX_TOOL_CALLS = 3
+            # 비교/추론 질문은 2개 도구 + 재시도가 필요하므로 5회로 상향
+            MAX_TOOL_CALLS = 5
             tool_call_count = 0
+            tool_limit_reached = False  # 제한 도달 시 스트림을 끝까지 소비하기 위한 플래그
+
+            # Checkpointer 상태 오류 시 자동 재시도
+            MAX_RETRIES = 1
+            retry_count = 0
 
             # IMP: LangGraph 에이전트에 사용자의 메시지를 HumanMessage 형태로 전달하고,
             # thread_id를 통해 대화 문맥(Context)을 유지하며 비동기 스트리밍(astream)으로 실행하는 구현.
@@ -101,6 +107,40 @@ class AgentService:
                         custom_logger.error(f"Error in agent_task: {e}")
                         import traceback
                         custom_logger.error(traceback.format_exc())
+
+                        # tool_limit_reached 상태에서 발생한 에러는 무시
+                        # (이미 강제 응답을 전송했으므로 에러 메시지로 덮어씌우지 않음)
+                        if tool_limit_reached:
+                            custom_logger.info("Tool 제한 후 스트림 소비 중 에러 — 무시 (이미 응답 전송됨)")
+                            agent_task = None
+                            break
+
+                        # tool_calls/tool_call_id 불일치: checkpointer 상태 깨짐 → 초기화 후 재시도
+                        error_str = str(e)
+                        if "tool_calls" in error_str and "tool_call_id" in error_str and retry_count < MAX_RETRIES:
+                            retry_count += 1
+                            custom_logger.warning(
+                                f"Corrupted thread state detected (thread={thread_id}). "
+                                f"Resetting checkpointer and retrying ({retry_count}/{MAX_RETRIES})."
+                            )
+                            # checkpointer 초기화 → 다음 _create_agent에서 새로 생성
+                            self.checkpointer = None
+                            self._create_agent(thread_id=thread_id)
+                            # 새 스트림으로 재시도
+                            agent_stream = self.agent.astream(
+                                {"messages": [HumanMessage(content=user_messages)]},
+                                config={
+                                    "configurable": {"thread_id": str(thread_id)},
+                                    "recursion_limit": settings.DEEPAGENT_RECURSION_LIMIT,
+                                },
+                                stream_mode="updates",
+                            )
+                            agent_iterator = agent_stream.__aiter__()
+                            agent_task = asyncio.create_task(agent_iterator.__anext__())
+                            tool_call_count = 0
+                            tool_limit_reached = False
+                            continue
+
                         agent_task = None
                         # 에러를 스트리밍으로 전송
                         error_response = {
@@ -124,6 +164,12 @@ class AgentService:
                             if len(messages) == 0:
                                 continue
                             message = messages[0]
+
+                            # Tool 제한에 도달한 후에는 스트림만 소비하고 이벤트를 전송하지 않음
+                            # (LangGraph 상태를 정상 유지하기 위해 스트림을 끝까지 소비해야 함)
+                            if tool_limit_reached:
+                                continue
+
                             if step == "model":
                                 tool_calls = message.tool_calls
                                 if not tool_calls:
@@ -145,12 +191,8 @@ class AgentService:
                                     if tool_call_count >= MAX_TOOL_CALLS:
                                         custom_logger.warning(f"Tool 호출 횟수 초과 ({MAX_TOOL_CALLS}회). 강제 응답 생성.")
                                         yield f'{{"step": "done", "message_id": "{uuid.uuid4()}", "role": "assistant", "content": "조회 가능한 데이터를 모두 확인했으나, 요청하신 조건에 해당하는 거래 데이터가 없습니다. 다른 지역이나 조건으로 다시 질문해주세요.", "metadata": {{}}, "created_at": "{datetime.utcnow().isoformat()}"}}'
-                                        # 남은 스트림 정리 후 종료
-                                        if progress_task is not None:
-                                            progress_task.cancel()
-                                            with contextlib.suppress(asyncio.CancelledError):
-                                                await progress_task
-                                        return
+                                        tool_limit_reached = True
+                                        continue
                                 yield f'{{"step": "tools", "name": {json.dumps(message.name)}, "content": {message.content}}}'
                     except Exception as e:
                         # 청크 처리 중 예외 발생

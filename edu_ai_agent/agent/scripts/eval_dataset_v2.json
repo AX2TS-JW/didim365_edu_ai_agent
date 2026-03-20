@@ -1,0 +1,92 @@
+[
+  {
+    "id": "S01",
+    "category": "단순 조회",
+    "input": "강남구 최근 아파트 매매 시세 알려줘",
+    "expected_output": "강남구의 최근 아파트 매매 실거래가 데이터를 조회하여 주요 단지별 거래가격과 평당가를 안내합니다.",
+    "expected_tool": "search_apartment_trades",
+    "expected_region": "강남구",
+    "expected_region_code": "11680"
+  },
+  {
+    "id": "S02",
+    "category": "단순 조회",
+    "input": "송파구 아파트 월세 시세 알려줘",
+    "expected_output": "송파구의 최근 아파트 월세 실거래가를 조회하여 주요 단지별 보증금과 월세를 안내합니다.",
+    "expected_tool": "search_apartment_rentals",
+    "expected_region": "송파구",
+    "expected_region_code": "11710"
+  },
+  {
+    "id": "S03",
+    "category": "단순 조회",
+    "input": "마포구 아파트 전세 시세",
+    "expected_output": "마포구의 최근 아파트 전세 실거래가를 조회하여 안내합니다.",
+    "expected_tool": "search_apartment_rentals",
+    "expected_region": "마포구",
+    "expected_region_code": "11440"
+  },
+  {
+    "id": "C01",
+    "category": "비교 분석",
+    "input": "강남구랑 송파구 매매가 비교해줘",
+    "expected_output": "강남구와 송파구의 매매 실거래가를 각각 조회하여 가격 수준, 평당가 등을 비교 분석합니다.",
+    "expected_tool": "both_trades",
+    "expected_region": "강남구,송파구",
+    "expected_region_code": "11680,11710"
+  },
+  {
+    "id": "C02",
+    "category": "비교 분석",
+    "input": "서초구 매매가랑 전세가 같이 알려줘",
+    "expected_output": "서초구의 매매 실거래가와 전세 실거래가를 각각 조회하여 함께 안내합니다.",
+    "expected_tool": "both",
+    "expected_region": "서초구",
+    "expected_region_code": "11650"
+  },
+  {
+    "id": "C03",
+    "category": "비교 분석",
+    "input": "용산구 작년 이맘때랑 지금 매매가 비교해줘",
+    "expected_output": "용산구의 작년 동월과 이번 달 매매 실거래가를 각각 조회하여 시세 변동을 비교합니다.",
+    "expected_tool": "search_apartment_trades",
+    "expected_region": "용산구",
+    "expected_region_code": "11170"
+  },
+  {
+    "id": "R01",
+    "category": "추론 필요",
+    "input": "강남구 전세가율이 어느 정도야?",
+    "expected_output": "강남구의 매매가와 전세가를 조회하여 전세가율(전세가/매매가 비율)을 계산하고 판단 근거를 안내합니다.",
+    "expected_tool": "calculate_jeonse_ratio",
+    "expected_region": "강남구",
+    "expected_region_code": "11680"
+  },
+  {
+    "id": "R02",
+    "category": "추론 필요",
+    "input": "송파구에서 지금 전세 살다가 매매로 갈아타는 게 나을까?",
+    "expected_output": "송파구의 전세가율과 갭을 분석하여 매매 전환 판단 근거를 제시합니다.",
+    "expected_tool": "calculate_jeonse_ratio",
+    "expected_region": "송파구",
+    "expected_region_code": "11710"
+  },
+  {
+    "id": "E01",
+    "category": "엣지 케이스",
+    "input": "판교 아파트 시세 알려줘",
+    "expected_output": "판교는 동 이름이므로 분당구(41135)로 매핑하거나, 시군구 단위 확인을 요청합니다.",
+    "expected_tool": "search_apartment_trades",
+    "expected_region": "분당구",
+    "expected_region_code": "41135"
+  },
+  {
+    "id": "E02",
+    "category": "엣지 케이스",
+    "input": "최근 아파트 시세 알려줘",
+    "expected_output": "어느 지역인지 되물어봐야 합니다.",
+    "expected_tool": null,
+    "expected_region": null,
+    "expected_region_code": null
+  }
+]
