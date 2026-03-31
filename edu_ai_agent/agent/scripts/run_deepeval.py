@@ -122,7 +122,6 @@ def main():
     eval_result = deepeval_evaluate(
         test_cases=test_cases,
         metrics=metrics,
-        print_results=False,
     )
 
     # 3. ToolUsageMetric (결정론적) 평가

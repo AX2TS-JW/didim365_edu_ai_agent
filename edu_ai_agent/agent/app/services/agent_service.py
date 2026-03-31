@@ -193,7 +193,7 @@ class AgentService:
                                         yield f'{{"step": "done", "message_id": "{uuid.uuid4()}", "role": "assistant", "content": "조회 가능한 데이터를 모두 확인했으나, 요청하신 조건에 해당하는 거래 데이터가 없습니다. 다른 지역이나 조건으로 다시 질문해주세요.", "metadata": {{}}, "created_at": "{datetime.utcnow().isoformat()}"}}'
                                         tool_limit_reached = True
                                         continue
-                                yield f'{{"step": "tools", "name": {json.dumps(message.name)}, "content": {message.content}}}'
+                                yield f'{{"step": "tools", "name": {json.dumps(message.name)}, "content": {json.dumps(message.content, ensure_ascii=False)}}}'
                     except Exception as e:
                         # 청크 처리 중 예외 발생
                         custom_logger.error(f"Error processing chunk: {e}")
