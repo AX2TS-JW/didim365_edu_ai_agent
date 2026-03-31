@@ -33,7 +33,7 @@ from app.evaluation.tool_usage_metric import ToolUsageMetric
 from deepeval import evaluate as deepeval_evaluate
 
 AGENT_URL = "http://localhost:8000/api/v1/chat"
-DATASET_FILE = Path(__file__).parent / "eval_dataset.json"
+DATASET_FILE = Path(__file__).parent / "eval_dataset_v2.json"
 OUTPUT_FILE = Path(__file__).parent / "output" / "deepeval_report.json"
 
 

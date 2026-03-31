@@ -156,6 +156,18 @@ def diagnose(case: dict, trace: dict) -> dict:
         passed = has_trades and has_rentals
         return {"pass": passed, "summary": "매매+전세 모두 조회" if passed else f"일부만 조회: {called_tools}"}
 
+    if expected_tool == "both_trades":
+        trades_count = sum(1 for t in called_tools if "trades" in str(t))
+        passed = trades_count >= 2
+        return {"pass": passed, "summary": f"매매 {trades_count}회 조회" if passed else f"매매 조회 부족: {called_tools}"}
+
+    if expected_tool == "both_or_ratio":
+        has_trades = any("trades" in str(t) for t in called_tools)
+        has_rentals = any("rentals" in str(t) for t in called_tools)
+        has_ratio = any("jeonse_ratio" in str(t) for t in called_tools)
+        passed = (has_trades and has_rentals) or has_ratio
+        return {"pass": passed, "summary": "매매+전세 조회 또는 전세가율 도구 사용" if passed else f"부족: {called_tools}"}
+
     if expected_tool and expected_tool != "null":
         has_correct_tool = any(expected_tool in str(t) for t in called_tools)
         if has_correct_tool:
