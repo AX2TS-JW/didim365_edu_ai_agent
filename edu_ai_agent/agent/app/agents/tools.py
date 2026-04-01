@@ -459,10 +459,31 @@ def _format_rentals(rentals: list, region: str, region_code: str, year_month: st
 
 
 # ──────────────────────────────────────────────────────────
-# 자동 월 탐색: 데이터 없으면 최대 6개월 이전까지 자동 탐색
+# 자동 월 탐색: 데이터 없으면 최대 12개월 이전까지 자동 탐색
 # ──────────────────────────────────────────────────────────
 
-MAX_AUTO_SEARCH_MONTHS = 6
+MAX_AUTO_SEARCH_MONTHS = 12
+# 3개월 이상 전 데이터는 시세 참고용 경고 표시
+_STALE_DATA_THRESHOLD_MONTHS = 3
+
+
+def _months_diff(ym_from: str, ym_to: str) -> int:
+    """두 YYYYMM 간 월 차이를 계산합니다."""
+    y1, m1 = int(ym_from[:4]), int(ym_from[4:])
+    y2, m2 = int(ym_to[:4]), int(ym_to[4:])
+    return (y1 - y2) * 12 + (m1 - m2)
+
+
+def _stale_data_warning(requested_ym: str, actual_ym: str) -> str:
+    """요청한 월과 실제 데이터 월의 차이에 따라 경고 메시지를 생성합니다."""
+    diff = _months_diff(requested_ym, actual_ym)
+    if diff <= 0:
+        return ""
+    if diff < _STALE_DATA_THRESHOLD_MONTHS:
+        return f"⚠️ {requested_ym[:4]}년 {requested_ym[4:]}월에는 데이터가 없어 {actual_ym[:4]}년 {actual_ym[4:]}월 데이터를 조회했습니다.\n\n"
+    return (f"⚠️ {requested_ym[:4]}년 {requested_ym[4:]}월 기준 최근 거래가 없어 "
+            f"{actual_ym[:4]}년 {actual_ym[4:]}월({diff}개월 전) 데이터를 조회했습니다. "
+            f"오래된 데이터이므로 현재 시세와 차이가 있을 수 있습니다. 참고용으로만 활용해주세요.\n\n")
 
 
 def _prev_year_month(ym: str) -> str:
@@ -521,7 +542,7 @@ def _search_rentals_with_fallback(region_code: str, year_month: str) -> tuple[li
 @tool
 def search_apartment_trades(region: str, year_month: str) -> str:
     """아파트 매매 실거래가를 조회합니다.
-    해당 월에 데이터가 없으면 최대 6개월 이전까지 자동으로 탐색합니다.
+    해당 월에 데이터가 없으면 최대 12개월 이전까지 자동으로 탐색합니다.
 
     Args:
         region: 기초자치단체(구/시/군) 이름만 입력. 반드시 "OO구", "OO시", "OO군" 형태여야 합니다. (예: "강남구", "분당구", "해운대구") 광역자치단체(서울, 부산 등)나 동 이름(판교, 잠실 등)은 입력하지 마세요.
@@ -537,18 +558,20 @@ def search_apartment_trades(region: str, year_month: str) -> str:
     data, actual_ym, from_es = _search_trades_with_fallback(region_code, year_month)
 
     if data is None:
-        return f"{region} 최근 {MAX_AUTO_SEARCH_MONTHS}개월간 매매 거래 내역이 없습니다."
+        # TODO: 향후 한국부동산원 가격지수 API 연동 시, 여기서 보완 데이터 제공
+        return f"{region} 최근 {MAX_AUTO_SEARCH_MONTHS}개월간 매매 거래 내역이 없습니다. 거래가 매우 드문 지역일 수 있습니다."
 
     result = _format_trades(data, region, region_code, actual_ym, from_es=from_es)
-    if actual_ym != year_month:
-        result = f"⚠️ {year_month[:4]}년 {year_month[4:]}월에는 데이터가 없어 {actual_ym[:4]}년 {actual_ym[4:]}월 데이터를 조회했습니다.\n\n" + result
+    warning = _stale_data_warning(year_month, actual_ym)
+    if warning:
+        result = warning + result
     return result
 
 
 @tool
 def search_apartment_rentals(region: str, year_month: str) -> str:
     """아파트 전월세 실거래가를 조회합니다.
-    해당 월에 데이터가 없으면 최대 6개월 이전까지 자동으로 탐색합니다.
+    해당 월에 데이터가 없으면 최대 12개월 이전까지 자동으로 탐색합니다.
 
     Args:
         region: 기초자치단체(구/시/군) 이름만 입력. 반드시 "OO구", "OO시", "OO군" 형태여야 합니다. (예: "강남구", "분당구", "해운대구") 광역자치단체(서울, 부산 등)나 동 이름(판교, 잠실 등)은 입력하지 마세요.
@@ -564,11 +587,13 @@ def search_apartment_rentals(region: str, year_month: str) -> str:
     data, actual_ym, from_es = _search_rentals_with_fallback(region_code, year_month)
 
     if data is None:
-        return f"{region} 최근 {MAX_AUTO_SEARCH_MONTHS}개월간 전월세 거래 내역이 없습니다."
+        # TODO: 향후 한국부동산원 가격지수 API 연동 시, 여기서 보완 데이터 제공
+        return f"{region} 최근 {MAX_AUTO_SEARCH_MONTHS}개월간 전월세 거래 내역이 없습니다. 거래가 매우 드문 지역일 수 있습니다."
 
     result = _format_rentals(data, region, region_code, actual_ym, from_es=from_es)
-    if actual_ym != year_month:
-        result = f"⚠️ {year_month[:4]}년 {year_month[4:]}월에는 데이터가 없어 {actual_ym[:4]}년 {actual_ym[4:]}월 데이터를 조회했습니다.\n\n" + result
+    warning = _stale_data_warning(year_month, actual_ym)
+    if warning:
+        result = warning + result
     return result
 
 
