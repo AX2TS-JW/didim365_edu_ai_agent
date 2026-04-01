@@ -95,12 +95,22 @@ edu_ai_agent/
 │   ├── app/
 │   │   ├── agents/
 │   │   │   ├── real_estate_agent.py    # create_agent() 에이전트 조립
-│   │   │   ├── tools.py                # @tool 매매/전월세 API 조회
-│   │   │   └── prompts.py             # 시스템 프롬프트
+│   │   │   ├── tools.py                # @tool 매매/전월세/전세가율 조회 + 지역명 검증
+│   │   │   └── prompts.py             # get_system_prompt() 동적 프롬프트
+│   │   ├── evaluation/                 # 2주차 평가 체계
+│   │   │   ├── llm_judge.py           # LLM-as-a-Judge (gpt-4o-mini)
+│   │   │   ├── deepeval_metrics.py    # DeepEval 메트릭 (Relevancy/Faithfulness/GEval)
+│   │   │   └── tool_usage_metric.py   # 규칙 기반 Tool 사용 평가
 │   │   ├── api/routes/                 # REST 엔드포인트
 │   │   ├── services/
 │   │   │   └── agent_service.py       # 에이전트 실행 + SSE 스트리밍
 │   │   └── core/config.py             # 환경변수
+│   ├── scripts/                        # 평가 스크립트
+│   │   ├── run_diagnostic.py          # 규칙 기반 진단 (Day 2)
+│   │   ├── run_judge_eval.py          # LLM Judge 평가 (Day 3)
+│   │   ├── run_deepeval.py            # DeepEval 평가 (Day 4)
+│   │   ├── generate_report.py         # 종합 리포트 생성 (Day 5)
+│   │   └── eval_dataset_v2.json       # 평가 데이터셋 13건
 │   └── pyproject.toml
 └── ui/                                 # Frontend
     ├── src/
@@ -115,8 +125,8 @@ edu_ai_agent/
 | 구성 요소 | 파일 | LangChain 개념 |
 |-----------|------|----------------|
 | **모델** | `real_estate_agent.py` | `ChatOpenAI(model="gpt-4.1")` |
-| **도구** | `tools.py` | `@tool` 데코레이터로 정의된 2개 함수 |
-| **프롬프트** | `prompts.py` | 날짜 인식 + Tool 선택 기준 + 호출 제한 |
+| **도구** | `tools.py` | `@tool` 데코레이터로 정의된 3개 함수 (매매/전월세/전세가율) |
+| **프롬프트** | `prompts.py` | `get_system_prompt()` 함수 — 매 요청마다 최신 날짜 주입, 기초자치단체 규칙 |
 | **메모리** | `agent_service.py` | `InMemorySaver` (thread_id 기반 멀티턴) |
 | **응답 포맷** | `real_estate_agent.py` | `ToolStrategy(ChatResponse)` 구조화 출력 |
 
@@ -124,8 +134,9 @@ edu_ai_agent/
 
 | Tool | 기능 | 데이터 소스 |
 |------|------|------------|
-| `search_apartment_trades` | 아파트 매매 실거래가 조회 | data.go.kr (15126468) |
-| `search_apartment_rentals` | 아파트 전월세 실거래가 조회 | data.go.kr (15126474) |
+| `search_apartment_trades` | 아파트 매매 실거래가 조회 (최대 12개월 자동 탐색, 요약 통계 포함) | data.go.kr (15126468) |
+| `search_apartment_rentals` | 아파트 전월세 실거래가 조회 (최대 12개월 자동 탐색, 요약 통계 포함) | data.go.kr (15126474) |
+| `calculate_jeonse_ratio` | 전세가율 계산 (매매+전세를 한번에 조회, 갭/판단근거 제공) | 내부 계산 |
 
 ---
 
@@ -176,10 +187,14 @@ pnpm dev
 
 | 유형 | 질문 예시 | 동작 |
 |------|----------|------|
-| **단일 조회** | "송파구 2025년 2월 매매가 알려줘" | `search_apartment_trades` 1회 호출 |
-| **전월세 조회** | "강남구 전세 시세 알려줘" | `search_apartment_rentals` 1회 호출 |
-| **복합 조회** | "강남구 매매가랑 전세가 둘 다 알려줘" | 매매 + 전월세 Tool 동시 호출 |
+| **단일 조회** | "송파구 매매가 알려줘" | `search_apartment_trades` 1회 (요약 통계 포함) |
+| **전월세 조회** | "강남구 전세 시세 알려줘" | `search_apartment_rentals` 1회 |
+| **전세가율** | "강남구 전세가율이 어느 정도야?" | `calculate_jeonse_ratio` 1회 (매매+전세 내부 조회) |
+| **비교 분석** | "강남구랑 송파구 매매가 비교해줘" | trades 2회 호출 후 비교 |
+| **시점 비교** | "용산구 작년 이맘때랑 지금 비교해줘" | trades 2회 (시점별) |
 | **멀티턴** | "거기서 전세가도 알려줘" | 이전 맥락(지역)을 기억하여 조회 |
+| **동 이름** | "판교 아파트 시세" | 되묻기 — "분당구 시세를 조회할까요?" |
+| **광역자치단체** | "서울 아파트 매매 시세" | 되묻기 — "서울의 어느 구를 조회할까요?" |
 
 ### 데모
 
@@ -214,6 +229,7 @@ pnpm dev
 
 | 문서 | 설명 |
 |------|------|
-| [학습 로드맵](docs/부동산_에이전트_학습_로드맵.md) | 4주차 학습 전략 및 일자별 커리큘럼 |
+| [학습 로드맵](docs/부동산_에이전트_학습_로드맵.md) | 4주차 학습 전략 및 일자별 커리큘럼 + 2주차 진행 결과 |
+| [1-2주차 학습 회고록](docs/1-2주차_학습_회고록.md) | 에이전트 구현 + 평가 파이프라인 구축 회고 + Q&A 23문항 |
 | [Backend 상세](edu_ai_agent/agent/README.md) | Agent 서버 설정 및 구조 |
 | [API 스펙](edu_ai_agent/agent/docs/spec.md) | API 엔드포인트 명세 |
