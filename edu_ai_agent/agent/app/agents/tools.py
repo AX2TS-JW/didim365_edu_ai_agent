@@ -43,8 +43,12 @@ _FALLBACK_REGION_CODES = {
 # 지역코드 조회
 # ──────────────────────────────────────────────────────────
 
-def _resolve_region_code(region: str) -> str | None:
-    """ES에서 지역코드를 검색합니다. ES 미연결 시 폴백 딕셔너리 사용."""
+def _resolve_region_code(region: str) -> tuple[str | None, str | None]:
+    """ES에서 지역코드를 검색합니다. ES 미연결 시 폴백 딕셔너리 사용.
+
+    Returns:
+        (region_code, error_hint): 성공 시 (코드, None), 실패 시 (None, 안내 메시지)
+    """
     if es_client is not None:
         try:
             result = es_client.search(
@@ -63,12 +67,35 @@ def _resolve_region_code(region: str) -> str | None:
             )
             hits = result["hits"]["hits"]
             if hits:
-                return hits[0]["_source"]["region_code"]
+                return hits[0]["_source"]["region_code"], None
         except Exception as e:
             custom_logger.error(f"ES 지역코드 검색 실패: {e}")
 
     # 폴백: 하드코딩 딕셔너리
-    return _resolve_region_code_fallback(region)
+    code = _resolve_region_code_fallback(region)
+    if code:
+        return code, None
+
+    # 동/읍/면/리 이름 감지 → 시군구 단위 안내
+    if region.endswith(("동", "읍", "면", "리")):
+        return None, (f"[조회 불가] '{region}'은(는) 동/읍/면 이름입니다. "
+                      f"실거래가 API는 기초자치단체(구/시/군) 단위로만 조회 가능합니다. "
+                      f"이 메시지를 사용자에게 전달하고, 다른 지역으로 재조회하지 마세요. "
+                      f"사용자에게 기초자치단체를 되물어보세요.")
+
+    # 시/도(광역자치단체) 감지 → 기초자치단체 안내
+    _SIDO_NAMES = ("서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종",
+                   "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주")
+    region_stripped = region.replace("특별시", "").replace("광역시", "").replace("특별자치시", "").replace("특별자치도", "").replace("도", "").replace("시", "").replace(" ", "")
+    if region_stripped in _SIDO_NAMES or region in _SIDO_NAMES:
+        return None, (f"[조회 불가] '{region}'은(는) 광역자치단체(시/도)입니다. "
+                      f"실거래가 API는 기초자치단체(구/시/군) 단위로만 조회 가능합니다. "
+                      f"이 메시지를 사용자에게 전달하고, 다른 지역으로 재조회하지 마세요. "
+                      f"사용자에게 '{region}' 내 어느 기초자치단체를 조회할지 되물어보세요.")
+
+    return None, (f"[조회 불가] '{region}'에 해당하는 지역코드를 찾을 수 없습니다. "
+                  f"기초자치단체(구/시/군) 단위로 입력해주세요. (예: 강남구, 분당구) "
+                  f"이 메시지를 사용자에게 전달하고, 다른 지역으로 재조회하지 마세요.")
 
 
 def _resolve_region_code_fallback(region: str) -> str | None:
@@ -497,15 +524,15 @@ def search_apartment_trades(region: str, year_month: str) -> str:
     해당 월에 데이터가 없으면 최대 6개월 이전까지 자동으로 탐색합니다.
 
     Args:
-        region: 시군구 이름 (예: "강남구", "분당구", "송파구")
+        region: 기초자치단체(구/시/군) 이름만 입력. 반드시 "OO구", "OO시", "OO군" 형태여야 합니다. (예: "강남구", "분당구", "해운대구") 광역자치단체(서울, 부산 등)나 동 이름(판교, 잠실 등)은 입력하지 마세요.
         year_month: 조회할 년월 (예: "202501", "202412")
 
     Returns:
         해당 지역/기간의 아파트 매매 실거래 내역 (최대 10건 요약)
     """
-    region_code = _resolve_region_code(region)
+    region_code, error_hint = _resolve_region_code(region)
     if not region_code:
-        return f"'{region}'에 해당하는 지역코드를 찾을 수 없습니다. 시군구 단위로 입력해주세요. (예: 강남구, 분당구)"
+        return error_hint
 
     data, actual_ym, from_es = _search_trades_with_fallback(region_code, year_month)
 
@@ -524,15 +551,15 @@ def search_apartment_rentals(region: str, year_month: str) -> str:
     해당 월에 데이터가 없으면 최대 6개월 이전까지 자동으로 탐색합니다.
 
     Args:
-        region: 시군구 이름 (예: "강남구", "분당구", "송파구")
+        region: 기초자치단체(구/시/군) 이름만 입력. 반드시 "OO구", "OO시", "OO군" 형태여야 합니다. (예: "강남구", "분당구", "해운대구") 광역자치단체(서울, 부산 등)나 동 이름(판교, 잠실 등)은 입력하지 마세요.
         year_month: 조회할 년월 (예: "202501", "202412")
 
     Returns:
         해당 지역/기간의 아파트 전월세 실거래 내역 (최대 10건 요약)
     """
-    region_code = _resolve_region_code(region)
+    region_code, error_hint = _resolve_region_code(region)
     if not region_code:
-        return f"'{region}'에 해당하는 지역코드를 찾을 수 없습니다. 시군구 단위로 입력해주세요. (예: 강남구, 분당구)"
+        return error_hint
 
     data, actual_ym, from_es = _search_rentals_with_fallback(region_code, year_month)
 
@@ -594,15 +621,15 @@ def calculate_jeonse_ratio(region: str, year_month: str) -> str:
     매매와 전세 데이터를 한 번에 조회하여 전세가율, 매매-전세 갭, 매매/전세 판단 근거를 제공합니다.
 
     Args:
-        region: 시군구 이름 (예: "강남구", "분당구", "송파구")
+        region: 기초자치단체(구/시/군) 이름만 입력. 반드시 "OO구", "OO시", "OO군" 형태여야 합니다. (예: "강남구", "분당구", "해운대구") 광역자치단체(서울, 부산 등)나 동 이름(판교, 잠실 등)은 입력하지 마세요.
         year_month: 조회할 년월 (예: "202501", "202412")
 
     Returns:
         전세가율 분석 결과 (평균 매매가, 평균 전세가, 전세가율, 갭, 판단 근거)
     """
-    region_code = _resolve_region_code(region)
+    region_code, error_hint = _resolve_region_code(region)
     if not region_code:
-        return f"'{region}'에 해당하는 지역코드를 찾을 수 없습니다. 시군구 단위로 입력해주세요."
+        return error_hint
 
     # 매매 데이터 조회
     trades = _get_trades_data(region_code, year_month)
