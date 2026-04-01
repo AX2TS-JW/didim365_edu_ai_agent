@@ -405,7 +405,22 @@ def _format_trades(trades: list, region: str, region_code: str, year_month: str,
 
     total = len(valid)
     source = "ES 캐시" if from_es else "API"
-    header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 매매 실거래가 — 총 {total}건 (상위 10건, {source})\n\n"
+
+    # 요약 통계 계산
+    prices = []
+    for t in valid:
+        p = t.get("deal_amount", 0) if from_es else _parse_price((t.get("dealAmount") or "0").strip().replace(",", ""))
+        if isinstance(p, (int, float)) and p > 0:
+            prices.append(p)
+
+    stats = ""
+    if prices:
+        avg_p = sum(prices) / len(prices)
+        max_p = max(prices)
+        min_p = min(prices)
+        stats = f"\n■ 요약 통계: 평균 {avg_p/10000:.1f}억원 | 최고 {max_p/10000:.1f}억원 | 최저 {min_p/10000:.1f}억원\n"
+
+    header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 매매 실거래가 — 총 {total}건 (상위 10건, {source})\n{stats}\n"
     footer = "\n\n⚠️ 참고: 실거래가 데이터는 신고 지연이 있어 최근 1~2개월은 데이터가 적을 수 있습니다."
     return header + "\n".join(summaries) + footer
 
@@ -453,7 +468,22 @@ def _format_rentals(rentals: list, region: str, region_code: str, year_month: st
 
     total = len(rentals)
     source = "ES 캐시" if from_es else "API"
-    header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 전월세 실거래가 — 총 {total}건 (상위 10건, {source})\n\n"
+
+    # 요약 통계 계산 (보증금 기준)
+    deposits = []
+    for t in rentals:
+        d = t.get("deposit", 0) if from_es else _parse_price((t.get("deposit") or "0").strip().replace(",", ""))
+        if isinstance(d, (int, float)) and d > 0:
+            deposits.append(d)
+
+    stats = ""
+    if deposits:
+        avg_d = sum(deposits) / len(deposits)
+        max_d = max(deposits)
+        min_d = min(deposits)
+        stats = f"\n■ 보증금 요약: 평균 {avg_d/10000:.1f}억원 | 최고 {max_d/10000:.1f}억원 | 최저 {min_d/10000:.1f}억원\n"
+
+    header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 전월세 실거래가 — 총 {total}건 (상위 10건, {source})\n{stats}\n"
     footer = "\n\n⚠️ 참고: 실거래가 데이터는 신고 지연이 있어 최근 1~2개월은 데이터가 적을 수 있습니다."
     return header + "\n".join(summaries) + footer
 
