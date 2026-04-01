@@ -41,8 +41,10 @@ Frontend (`ui/.env`): `VITE_API_BASE_URL` (default: http://localhost:8000)
 - **Routes**: `agent/app/api/routes/` — `chat.py` (POST streaming SSE), `threads.py` (GET thread history, favorites)
 - **Services**: `agent/app/services/agent_service.py` — core agent execution via LangChain `astream()`, yields JSON events with steps: `"model"` → `"tools"` → `"done"`
 - **Agent**: `agent/app/agents/real_estate_agent.py` — `create_agent()` + `ToolStrategy(ChatResponse)` + `InMemorySaver`
-- **Tools**: `agent/app/agents/tools.py` — `@tool` 데코레이터로 매매/전월세 실거래가 API 조회 (data.go.kr)
-- **Prompts**: `agent/app/agents/prompts.py` — 시스템 프롬프트 (날짜 인식, Tool 선택 기준, 호출 제한)
+- **Tools**: `agent/app/agents/tools.py` — `@tool` 데코레이터로 매매/전월세/전세가율 조회 (data.go.kr). 자동 월 탐색(최대 12개월), 요약 통계(평균/최고/최저), 지역명 검증(동/읍/면/시/도 감지) 포함
+- **Prompts**: `agent/app/agents/prompts.py` — `get_system_prompt()` 함수로 매 요청마다 최신 날짜 주입. 기초자치단체 단위 조회 규칙, Tool 호출 최대 5회 제한
+- **Evaluation**: `agent/app/evaluation/` — LLM Judge (`llm_judge.py`), DeepEval 메트릭 (`deepeval_metrics.py`), Tool 사용 메트릭 (`tool_usage_metric.py`)
+- **Scripts**: `agent/scripts/` — 진단(`run_diagnostic.py`), Judge 평가(`run_judge_eval.py`), DeepEval 평가(`run_deepeval.py`), 종합 리포트(`generate_report.py`)
 - **Config**: `agent/app/core/config.py` — Pydantic Settings loaded from `.env`
 - **Mock data**: `agent/app/data/` — JSON files for threads and favorite questions
 
@@ -70,4 +72,8 @@ Vite dev server proxies `/api` requests to `http://localhost:8000`.
 - data.go.kr API는 **디코딩** 키 사용 (인코딩 키 사용 시 이중 인코딩 문제 발생)
 - API 응답 필드는 영문: `aptNm`, `dealAmount`, `excluUseAr`, `floor`, `umdNm`, `dealDay`
 - `cdealType`이 존재하면 해제(취소)된 거래 → 필터링 대상
-- 시스템 프롬프트에 현재 날짜 주입하여 미래 월 조회 방지, Tool 호출 최대 3회 제한
+- 시스템 프롬프트는 `get_system_prompt()` 함수로 매 요청마다 최신 날짜 주입 (모듈 레벨 변수 아님)
+- Tool 호출 최대 5회 제한 (프롬프트 + `MAX_TOOL_CALLS` 코드 이중 방어)
+- 실거래가 API는 **기초자치단체(구/시/군)** 단위로만 조회 가능. 동/읍/면, 광역자치단체는 도구에서 감지 후 안내
+- 도구는 데이터 없으면 최대 12개월까지 자동 탐색, 3개월 이상 전 데이터는 "참고용" 경고 표시
+- 도구 반환에 요약 통계(평균가/최고가/최저가/총 건수) 포함
