@@ -19,6 +19,9 @@ import uuid
 from pathlib import Path
 
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 프로젝트 루트를 path에 추가
 sys.path.insert(0, str(Path(__file__).parent.parent))
