@@ -7,12 +7,19 @@ from app.utils.prompt_guard import detect_injection, check_leakage, REJECTION_ME
 from fastapi import APIRouter, HTTPException
 from app.models.chat import ChatRequest
 from app.services.agent_service import AgentService
+from app.services.graph_agent_service import GraphAgentService
 from fastapi.responses import StreamingResponse
 
 chat_router = APIRouter()
 
-# AgentService를 모듈 레벨에서 한 번만 생성 (멀티턴 대화를 위해 InMemorySaver 공유)
-_agent_service = AgentService()
+# 에이전트 모드: "graph" = StateGraph (3주차), "react" = ReAct (2주차)
+import os
+_AGENT_MODE = os.getenv("AGENT_MODE", "graph")
+
+if _AGENT_MODE == "graph":
+    _agent_service = GraphAgentService()
+else:
+    _agent_service = AgentService()
 
 
 def _make_done_event(content: str) -> str:
