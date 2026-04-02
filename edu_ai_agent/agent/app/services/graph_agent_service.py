@@ -64,6 +64,7 @@ class GraphAgentService:
                 "trade_type": "",
                 "year_month": "",
                 "data": {},
+                "pdf_context": [],
                 "response": "",
             }
 
@@ -109,6 +110,16 @@ class GraphAgentService:
                                 "step": "tools",
                                 "name": f"조회: {r.get('region', '')}",
                                 "content": r.get("content", "")[:500],
+                            }, ensure_ascii=False)
+
+                    # search_pdf 노드: PDF 검색 결과
+                    elif node_name == "search_pdf":
+                        pdf_context = node_output.get("pdf_context", [])
+                        if pdf_context:
+                            yield json.dumps({
+                                "step": "tools",
+                                "name": "PDF 리포트 검색",
+                                "content": f"{len(pdf_context)}건의 관련 리포트를 찾았습니다.",
                             }, ensure_ascii=False)
 
                     # respond 노드: 최종 답변

@@ -31,11 +31,12 @@ from app.core.config import settings
 
 class AgentState(TypedDict):
     messages: list           # 대화 히스토리
-    query_type: str          # "simple", "compare", "ambiguous", "jeonse_ratio"
+    query_type: str          # "simple", "compare", "ambiguous", "jeonse_ratio", "comprehensive"
     regions: list[str]       # ["강남구"] 또는 ["강남구", "송파구"]
     trade_type: str          # "매매", "전세", "전세가율"
     year_month: str          # 조회 년월 (YYYYMM)
     data: dict               # 조회 결과
+    pdf_context: list[str]   # PDF 검색 결과 (하이브리드 검색)
     response: str            # 최종 답변
 
 
@@ -61,7 +62,7 @@ _PARSE_PROMPT = """사용자의 부동산 질문을 분석하여 아래 JSON 형
 현재 년월: {current_ym}
 
 분석 기준:
-- query_type: "simple"(단일 지역 조회), "compare"(2개 지역 비교), "jeonse_ratio"(전세가율/갈아타기), "ambiguous"(지역 없음/모호)
+- query_type: "simple"(단일 지역 조회), "compare"(2개 지역 비교), "jeonse_ratio"(전세가율/갈아타기), "comprehensive"(투자 판단/전망/사도될까 등 종합 분석 필요), "ambiguous"(지역 없음/모호)
 - regions: 기초자치단체(구/시/군) 이름 목록. 동 이름(판교, 잠실)이나 광역자치단체(서울, 부산)는 "ambiguous"로 분류
 - trade_type: "매매", "전세", "전세가율"
 - year_month: 조회할 년월 (YYYYMM). 미래 월은 현재 년월로 대체. "최근"이면 현재 년월
@@ -136,11 +137,29 @@ def ask_clarification(state: AgentState) -> dict:
 # 노드 3: 데이터 조회 (단순)
 # ──────────────────────────────────────────────────────────
 
+def _summarize_for_comprehensive(result: str) -> str:
+    """comprehensive 질문용으로 도구 결과를 요약합니다. 요약 통계 + 상위 3건만 포함."""
+    lines = result.split("\n")
+    summary_lines = []
+    for line in lines:
+        # 요약 통계 줄, 헤더, 경고 줄은 유지
+        if line.startswith("📊") or line.startswith("■") or line.startswith("⚠️"):
+            summary_lines.append(line)
+        # 개별 거래는 상위 3건만
+        elif line.startswith("- "):
+            if sum(1 for l in summary_lines if l.startswith("- ")) < 3:
+                summary_lines.append(line)
+    if not summary_lines:
+        return result[:500]
+    return "\n".join(summary_lines)
+
+
 def fetch_data_simple(state: AgentState) -> dict:
     """단일 지역 데이터를 조회합니다."""
     region = state["regions"][0] if state["regions"] else ""
     ym = state["year_month"]
     trade_type = state["trade_type"]
+    is_comprehensive = state.get("query_type") == "comprehensive"
 
     if trade_type == "전세가율":
         result = calculate_jeonse_ratio.invoke({"region": region, "year_month": ym})
@@ -149,7 +168,10 @@ def fetch_data_simple(state: AgentState) -> dict:
     else:
         result = search_apartment_trades.invoke({"region": region, "year_month": ym})
 
-    return {"data": {"results": [{"region": region, "content": result}]}}
+    # comprehensive: 요약본 전달 (토큰 절약, 응답 속도 향상)
+    content = _summarize_for_comprehensive(result) if is_comprehensive else result
+
+    return {"data": {"results": [{"region": region, "content": content}]}}
 
 
 # ──────────────────────────────────────────────────────────
@@ -176,7 +198,38 @@ def fetch_data_compare(state: AgentState) -> dict:
 
 
 # ──────────────────────────────────────────────────────────
-# 노드 5: 응답 생성
+# 노드 5: PDF 검색 (종합 판단용 — 하이브리드 검색)
+# ──────────────────────────────────────────────────────────
+
+def search_pdf(state: AgentState) -> dict:
+    """ES에서 부동산 PDF 리포트를 하이브리드 검색합니다."""
+    user_msg = state["messages"][-1].content if state["messages"] else ""
+    regions = state.get("regions", [])
+
+    # 검색 쿼리: 사용자 질문 + 지역명
+    query = user_msg
+    if regions:
+        query = f"{' '.join(regions)} {user_msg}"
+
+    try:
+        from pipeline.search import search_hybrid
+        results = search_hybrid(query, top_k=3)
+
+        pdf_contexts = []
+        for r in results:
+            source = r.get("source_file", "unknown")
+            page = r.get("page", "?")
+            content = r.get("content", "")
+            pdf_contexts.append(f"[{source} p.{page}] {content}")
+
+        return {"pdf_context": pdf_contexts}
+    except Exception as e:
+        print(f"  ⚠️ PDF 검색 실패: {e}")
+        return {"pdf_context": []}
+
+
+# ──────────────────────────────────────────────────────────
+# 노드 6: 응답 생성
 # ──────────────────────────────────────────────────────────
 
 def generate_response(state: AgentState) -> dict:
@@ -191,15 +244,40 @@ def generate_response(state: AgentState) -> dict:
     for r in results:
         data_text += f"\n### {r['region']}\n{r['content']}\n"
 
-    if query_type == "compare":
-        instruction = "아래 두 지역의 데이터를 비교 분석하여 답변하세요. 가격 차이, 특징을 정리해주세요."
+    # PDF 컨텍스트 (종합 판단 시)
+    pdf_context = state.get("pdf_context", [])
+    pdf_text = ""
+    if pdf_context:
+        pdf_text = "\n\n### 참고 리포트 (PDF)\n" + "\n".join(pdf_context)
+
+    # 공통 서식 규칙: 마크다운 금지, 이모지+구분선으로 시각화 (브라우저 텍스트 렌더링 호환)
+    format_rule = (
+        "답변에 마크다운 문법(**, ##, ###, - 목록 등)을 절대 사용하지 마세요. "
+        "대신 아래 서식을 반드시 따르세요:\n"
+        "1) 섹션 제목은 이모지로 시작 (예: 📊 실거래가 현황, 📈 시장 전망, 📋 정책 동향, 💡 종합 의견)\n"
+        "2) 섹션 제목 아래에 구분선 ──────────────── 을 넣고, 섹션 사이에 빈 줄 2개를 넣어 여백을 확보\n"
+        "3) 핵심 수치는 ▸ 기호를 사용 (예: 평균 매매가 ▸ 34.3억원)\n"
+        "4) 긴 설명보다 짧은 문장으로 끊어서 작성\n"
+        "5) 💡 종합 의견 섹션 맨 앞에 '✅ 결론: (한 줄 핵심 요약)'을 먼저 작성하고, 그 아래에 상세 설명\n"
+        "6) 출처는 맨 아래에 📎 출처 섹션으로 모아주세요"
+    )
+
+    if query_type == "comprehensive":
+        instruction = (
+            "아래 실거래가 데이터와 전문가 리포트를 종합하여 사용자의 투자/매매 판단을 도와주세요. "
+            "실거래가 수치, 시장 전망, 정책 동향을 모두 포함하여 균형 잡힌 분석을 제공하세요. "
+            "출처(PDF 파일명)를 반드시 표기하세요. "
+            f"{format_rule}"
+        )
+    elif query_type == "compare":
+        instruction = f"아래 두 지역의 데이터를 비교 분석하여 답변하세요. 가격 차이, 특징을 정리해주세요. {format_rule}"
     else:
-        instruction = "아래 데이터를 바탕으로 사용자에게 답변하세요. 핵심 데이터(총 건수, 가격 범위, 평균가)를 반드시 포함하세요."
+        instruction = f"아래 데이터를 바탕으로 사용자에게 답변하세요. 핵심 데이터(총 건수, 가격 범위, 평균가)를 반드시 포함하세요. {format_rule}"
 
     user_msg = state["messages"][-1].content if state["messages"] else ""
 
     response = llm.invoke([
-        SystemMessage(content=f"{instruction}\n\n조회 데이터:\n{data_text}"),
+        SystemMessage(content=f"{instruction}\n\n조회 데이터:\n{data_text}{pdf_text}"),
         HumanMessage(content=user_msg),
     ])
 
@@ -215,6 +293,8 @@ def route_by_query_type(state: AgentState) -> str:
     qt = state.get("query_type", "ambiguous")
     if qt == "compare":
         return "fetch_compare"
+    elif qt == "comprehensive":
+        return "fetch_simple"  # 먼저 실거래가 조회 → 이후 search_pdf로 이동
     elif qt in ("simple", "jeonse_ratio"):
         return "fetch_simple"
     else:  # ambiguous + 예상 못한 값 → 되묻기 (안전)
@@ -235,6 +315,7 @@ def create_real_estate_graph(checkpointer=None):
     graph.add_node("ask_clarification", ask_clarification)
     graph.add_node("fetch_simple", fetch_data_simple)
     graph.add_node("fetch_compare", fetch_data_compare)
+    graph.add_node("search_pdf", search_pdf)
     graph.add_node("respond", generate_response)
 
     # 엣지 연결
@@ -245,8 +326,19 @@ def create_real_estate_graph(checkpointer=None):
         "fetch_compare": "fetch_compare",
     })
     graph.add_edge("ask_clarification", END)
-    graph.add_edge("fetch_simple", "respond")
+
+    # fetch 후 분기: comprehensive면 PDF 검색, 아니면 바로 응답
+    def route_after_fetch(state: AgentState) -> str:
+        if state.get("query_type") == "comprehensive":
+            return "search_pdf"
+        return "respond"
+
+    graph.add_conditional_edges("fetch_simple", route_after_fetch, {
+        "search_pdf": "search_pdf",
+        "respond": "respond",
+    })
     graph.add_edge("fetch_compare", "respond")
+    graph.add_edge("search_pdf", "respond")
     graph.add_edge("respond", END)
 
     # 컴파일
