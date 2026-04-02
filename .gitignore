@@ -19,5 +19,9 @@ dist/
 .idea/
 .DS_Store
 
+# Pipeline data (PDF 등 대용량 파일)
+edu_ai_agent/agent/pipeline/data/
+edu_ai_agent/agent/scripts/output/
+
 # Claude Code
 .claude/
