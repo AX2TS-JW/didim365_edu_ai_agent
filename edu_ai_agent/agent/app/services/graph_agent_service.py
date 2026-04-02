@@ -17,6 +17,7 @@ from datetime import datetime
 
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from app.agents.real_estate_graph import create_real_estate_graph, AgentState
 from app.core.config import settings
@@ -28,10 +29,15 @@ class GraphAgentService:
         self.graph = None
         self.checkpointer = None
 
-    def _create_graph(self):
+    async def _create_graph(self):
         """StateGraph 에이전트를 생성합니다."""
         if self.checkpointer is None:
-            self.checkpointer = InMemorySaver()
+            try:
+                self.checkpointer = AsyncSqliteSaver.from_conn_string("checkpoints.db")
+                custom_logger.info("[Graph] AsyncSqliteSaver 초기화 (checkpoints.db)")
+            except Exception as e:
+                custom_logger.warning(f"[Graph] SqliteSaver 실패, InMemorySaver 사용: {e}")
+                self.checkpointer = InMemorySaver()
 
         self.graph = create_real_estate_graph(checkpointer=self.checkpointer)
 
@@ -52,12 +58,13 @@ class GraphAgentService:
         try:
             # 그래프 초기화
             if self.graph is None:
-                self._create_graph()
+                await self._create_graph()
 
             custom_logger.info(f"[Graph] 사용자 메시지: {user_messages}")
 
-            # 초기 상태
-            initial_state = {
+            # 입력 상태: messages는 add_messages reducer로 기존 대화에 추가됨
+            # 다른 필드는 매 요청마다 초기화 (이전 질문의 query_type 등이 남지 않도록)
+            input_state = {
                 "messages": [HumanMessage(content=user_messages)],
                 "query_type": "",
                 "regions": [],
@@ -71,7 +78,7 @@ class GraphAgentService:
             config = {"configurable": {"thread_id": str(thread_id)}}
 
             # StateGraph 스트리밍 실행
-            async for chunk in self.graph.astream(initial_state, config=config, stream_mode="updates"):
+            async for chunk in self.graph.astream(input_state, config=config, stream_mode="updates"):
                 custom_logger.info(f"[Graph] 청크: {list(chunk.keys())}")
 
                 for node_name, node_output in chunk.items():

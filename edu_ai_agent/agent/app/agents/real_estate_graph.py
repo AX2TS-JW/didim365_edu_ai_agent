@@ -8,12 +8,13 @@
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 from typing_extensions import TypedDict
 
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AnyMessage, trim_messages
 from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.prompts import get_system_prompt
@@ -30,7 +31,7 @@ from app.core.config import settings
 # ──────────────────────────────────────────────────────────
 
 class AgentState(TypedDict):
-    messages: list           # 대화 히스토리
+    messages: Annotated[list[AnyMessage], add_messages]  # 대화 히스토리 (reducer: 새 메시지 추가)
     query_type: str          # "simple", "compare", "ambiguous", "jeonse_ratio", "comprehensive"
     regions: list[str]       # ["강남구"] 또는 ["강남구", "송파구"]
     trade_type: str          # "매매", "전세", "전세가율"
@@ -50,6 +51,24 @@ def _get_llm():
         api_key=settings.OPENAI_API_KEY,
         temperature=0.1,
     )
+
+
+# 멀티턴 메시지 트리밍: 대화가 길어지면 최근 메시지만 유지
+MAX_MESSAGE_TOKENS = 4000
+
+def _trim_messages(messages: list) -> list:
+    """대화 히스토리가 너무 길면 최근 메시지만 유지합니다."""
+    try:
+        return trim_messages(
+            messages,
+            max_tokens=MAX_MESSAGE_TOKENS,
+            strategy="last",
+            token_counter=_get_llm(),
+            allow_partial=False,
+        )
+    except Exception:
+        # trim 실패 시 최근 10개만 유지 (폴백)
+        return messages[-10:] if len(messages) > 10 else messages
 
 
 # ──────────────────────────────────────────────────────────
@@ -74,14 +93,16 @@ def parse_query(state: AgentState) -> dict:
     """사용자 질문을 분석하여 query_type, regions, trade_type, year_month를 결정합니다."""
     llm = _get_llm()
     messages = state["messages"]
-    user_msg = messages[-1].content if messages else ""
 
     today = datetime.now().strftime("%Y-%m-%d")
     current_ym = datetime.now().strftime("%Y%m")
 
+    # 이전 대화 맥락 포함 (트리밍으로 토큰 제한) — "거기서", "아까" 같은 후속 질문 지원
+    trimmed = _trim_messages(messages)
+
     response = llm.invoke([
         SystemMessage(content=_PARSE_PROMPT.format(today=today, current_ym=current_ym)),
-        HumanMessage(content=user_msg),
+        *trimmed,
     ])
 
     # JSON 파싱
@@ -130,7 +151,7 @@ def ask_clarification(state: AgentState) -> dict:
         HumanMessage(content=user_msg),
     ])
 
-    return {"response": response.content}
+    return {"response": response.content, "messages": [response]}
 
 
 # ──────────────────────────────────────────────────────────
@@ -274,14 +295,15 @@ def generate_response(state: AgentState) -> dict:
     else:
         instruction = f"아래 데이터를 바탕으로 사용자에게 답변하세요. 핵심 데이터(총 건수, 가격 범위, 평균가)를 반드시 포함하세요. {format_rule}"
 
-    user_msg = state["messages"][-1].content if state["messages"] else ""
+    # 이전 대화 맥락 포함 (트리밍으로 토큰 제한)
+    trimmed = _trim_messages(state["messages"])
 
     response = llm.invoke([
         SystemMessage(content=f"{instruction}\n\n조회 데이터:\n{data_text}{pdf_text}"),
-        HumanMessage(content=user_msg),
+        *trimmed,
     ])
 
-    return {"response": response.content}
+    return {"response": response.content, "messages": [response]}
 
 
 # ──────────────────────────────────────────────────────────
