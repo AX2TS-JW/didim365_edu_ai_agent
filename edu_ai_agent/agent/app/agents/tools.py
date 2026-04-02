@@ -309,14 +309,15 @@ def _fetch_trades_from_api(region_code: str, year_month: str) -> list | str:
         return f"응답 파싱 중 오류가 발생했습니다: {e}"
 
     body = data.get("response", {}).get("body", {})
+    total_count = int(body.get("totalCount", 0))
     items = body.get("items", {})
     if not items or items == "":
-        return []
+        return [], 0
 
     item_list = items.get("item", [])
     if isinstance(item_list, dict):
         item_list = [item_list]
-    return item_list
+    return item_list, total_count
 
 
 def _fetch_rentals_from_api(region_code: str, year_month: str) -> list | str:
@@ -348,21 +349,22 @@ def _fetch_rentals_from_api(region_code: str, year_month: str) -> list | str:
         return f"응답 파싱 중 오류가 발생했습니다: {e}"
 
     body = data.get("response", {}).get("body", {})
+    total_count = int(body.get("totalCount", 0))
     items = body.get("items", {})
     if not items or items == "":
-        return []
+        return [], 0
 
     item_list = items.get("item", [])
     if isinstance(item_list, dict):
         item_list = [item_list]
-    return item_list
+    return item_list, total_count
 
 
 # ──────────────────────────────────────────────────────────
 # 포맷팅
 # ──────────────────────────────────────────────────────────
 
-def _format_trades(trades: list, region: str, region_code: str, year_month: str, from_es: bool = False) -> str:
+def _format_trades(trades: list, region: str, region_code: str, year_month: str, from_es: bool = False, total_count: int = 0) -> str:
     """매매 거래 데이터를 사용자에게 보여줄 문자열로 포맷합니다."""
     # 해제 거래 필터링 (ES 데이터는 이미 cdeal_type 필드 사용)
     cdeal_key = "cdeal_type" if from_es else "cdealType"
@@ -420,12 +422,15 @@ def _format_trades(trades: list, region: str, region_code: str, year_month: str,
         min_p = min(prices)
         stats = f"\n■ 요약 통계: 평균 {avg_p/10000:.1f}억원 | 최고 {max_p/10000:.1f}억원 | 최저 {min_p/10000:.1f}억원\n"
 
-    header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 매매 실거래가 — 총 {total}건 (상위 10건, {source})\n{stats}\n"
+    # total_count: API에서 받은 실제 전체 건수, 0이면 조회된 건수 사용
+    actual_total = total_count if total_count > 0 else total
+    count_label = f"전체 {actual_total}건 중 {total}건 조회" if actual_total > total else f"총 {total}건"
+    header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 매매 실거래가 — {count_label} (상위 10건, {source})\n{stats}\n"
     footer = "\n\n⚠️ 참고: 실거래가 데이터는 신고 지연이 있어 최근 1~2개월은 데이터가 적을 수 있습니다."
     return header + "\n".join(summaries) + footer
 
 
-def _format_rentals(rentals: list, region: str, region_code: str, year_month: str, from_es: bool = False) -> str:
+def _format_rentals(rentals: list, region: str, region_code: str, year_month: str, from_es: bool = False, total_count: int = 0) -> str:
     """전월세 거래 데이터를 사용자에게 보여줄 문자열로 포맷합니다."""
     if not rentals:
         return f"{region} {year_month} 기간에 전월세 거래 내역이 없습니다."
@@ -483,7 +488,9 @@ def _format_rentals(rentals: list, region: str, region_code: str, year_month: st
         min_d = min(deposits)
         stats = f"\n■ 보증금 요약: 평균 {avg_d/10000:.1f}억원 | 최고 {max_d/10000:.1f}억원 | 최저 {min_d/10000:.1f}억원\n"
 
-    header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 전월세 실거래가 — 총 {total}건 (상위 10건, {source})\n{stats}\n"
+    actual_total = total_count if total_count > 0 else total
+    count_label = f"전체 {actual_total}건 중 {total}건 조회" if actual_total > total else f"총 {total}건"
+    header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 전월세 실거래가 — {count_label} (상위 10건, {source})\n{stats}\n"
     footer = "\n\n⚠️ 참고: 실거래가 데이터는 신고 지연이 있어 최근 1~2개월은 데이터가 적을 수 있습니다."
     return header + "\n".join(summaries) + footer
 
@@ -522,47 +529,49 @@ def _prev_year_month(ym: str) -> str:
     return dt.strftime("%Y%m")
 
 
-def _search_trades_with_fallback(region_code: str, year_month: str) -> tuple[list | None, str, bool]:
-    """매매 데이터를 조회하되, 없으면 최대 6개월 이전까지 자동 탐색합니다.
+def _search_trades_with_fallback(region_code: str, year_month: str) -> tuple[list | None, str, bool, int]:
+    """매매 데이터를 조회하되, 없으면 최대 12개월 이전까지 자동 탐색합니다.
 
     Returns:
-        (데이터 리스트 또는 None, 실제 조회된 year_month, ES 캐시 여부)
+        (데이터 리스트 또는 None, 실제 조회된 year_month, ES 캐시 여부, 전체 건수)
     """
     ym = year_month
     for i in range(MAX_AUTO_SEARCH_MONTHS):
         # ES 캐시
         cached = _search_trades_from_es(region_code, ym)
         if cached is not None:
-            return cached, ym, True
+            return cached, ym, True, len(cached)
         # API
-        raw = _fetch_trades_from_api(region_code, ym)
-        if isinstance(raw, str):
-            return None, ym, False  # API 에러
+        result = _fetch_trades_from_api(region_code, ym)
+        if isinstance(result, str):
+            return None, ym, False, 0  # API 에러
+        raw, total_count = result
         if raw:
             _save_trades_to_es(raw, region_code, ym)
-            return raw, ym, False
+            return raw, ym, False, total_count
         # 데이터 없으면 이전 월로
         custom_logger.info(f"매매 데이터 없음: {region_code}/{ym} → 이전 월 탐색 ({i+1}/{MAX_AUTO_SEARCH_MONTHS})")
         ym = _prev_year_month(ym)
-    return None, ym, False
+    return None, ym, False, 0
 
 
-def _search_rentals_with_fallback(region_code: str, year_month: str) -> tuple[list | None, str, bool]:
-    """전월세 데이터를 조회하되, 없으면 최대 6개월 이전까지 자동 탐색합니다."""
+def _search_rentals_with_fallback(region_code: str, year_month: str) -> tuple[list | None, str, bool, int]:
+    """전월세 데이터를 조회하되, 없으면 최대 12개월 이전까지 자동 탐색합니다."""
     ym = year_month
     for i in range(MAX_AUTO_SEARCH_MONTHS):
         cached = _search_rentals_from_es(region_code, ym)
         if cached is not None:
-            return cached, ym, True
-        raw = _fetch_rentals_from_api(region_code, ym)
-        if isinstance(raw, str):
-            return None, ym, False
+            return cached, ym, True, len(cached)
+        result = _fetch_rentals_from_api(region_code, ym)
+        if isinstance(result, str):
+            return None, ym, False, 0
+        raw, total_count = result
         if raw:
             _save_rentals_to_es(raw, region_code, ym)
-            return raw, ym, False
+            return raw, ym, False, total_count
         custom_logger.info(f"전월세 데이터 없음: {region_code}/{ym} → 이전 월 탐색 ({i+1}/{MAX_AUTO_SEARCH_MONTHS})")
         ym = _prev_year_month(ym)
-    return None, ym, False
+    return None, ym, False, 0
 
 
 # ──────────────────────────────────────────────────────────
@@ -585,13 +594,13 @@ def search_apartment_trades(region: str, year_month: str) -> str:
     if not region_code:
         return error_hint
 
-    data, actual_ym, from_es = _search_trades_with_fallback(region_code, year_month)
+    data, actual_ym, from_es, total_count = _search_trades_with_fallback(region_code, year_month)
 
     if data is None:
         # TODO: 향후 한국부동산원 가격지수 API 연동 시, 여기서 보완 데이터 제공
         return f"{region} 최근 {MAX_AUTO_SEARCH_MONTHS}개월간 매매 거래 내역이 없습니다. 거래가 매우 드문 지역일 수 있습니다."
 
-    result = _format_trades(data, region, region_code, actual_ym, from_es=from_es)
+    result = _format_trades(data, region, region_code, actual_ym, from_es=from_es, total_count=total_count)
     warning = _stale_data_warning(year_month, actual_ym)
     if warning:
         result = warning + result
@@ -614,13 +623,13 @@ def search_apartment_rentals(region: str, year_month: str) -> str:
     if not region_code:
         return error_hint
 
-    data, actual_ym, from_es = _search_rentals_with_fallback(region_code, year_month)
+    data, actual_ym, from_es, total_count = _search_rentals_with_fallback(region_code, year_month)
 
     if data is None:
         # TODO: 향후 한국부동산원 가격지수 API 연동 시, 여기서 보완 데이터 제공
         return f"{region} 최근 {MAX_AUTO_SEARCH_MONTHS}개월간 전월세 거래 내역이 없습니다. 거래가 매우 드문 지역일 수 있습니다."
 
-    result = _format_rentals(data, region, region_code, actual_ym, from_es=from_es)
+    result = _format_rentals(data, region, region_code, actual_ym, from_es=from_es, total_count=total_count)
     warning = _stale_data_warning(year_month, actual_ym)
     if warning:
         result = warning + result
@@ -633,7 +642,7 @@ def search_apartment_rentals(region: str, year_month: str) -> str:
 
 def _get_trades_data(region_code: str, year_month: str) -> list:
     """매매 데이터를 자동 탐색으로 가져옵니다 (내부용)."""
-    data, actual_ym, from_es = _search_trades_with_fallback(region_code, year_month)
+    data, actual_ym, from_es, _ = _search_trades_with_fallback(region_code, year_month)
     if data is None:
         return []
     if from_es:
@@ -653,7 +662,7 @@ def _get_trades_data(region_code: str, year_month: str) -> list:
 
 def _get_rentals_data(region_code: str, year_month: str) -> list:
     """전월세 데이터를 자동 탐색으로 가져옵니다 (내부용)."""
-    data, actual_ym, from_es = _search_rentals_with_fallback(region_code, year_month)
+    data, actual_ym, from_es, _ = _search_rentals_with_fallback(region_code, year_month)
     if data is None:
         return []
     if from_es:
