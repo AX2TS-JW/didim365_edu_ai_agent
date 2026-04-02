@@ -71,6 +71,32 @@ def _merge_results(state: SearchState) -> dict:
     return {"merged_hits": merged[:5]}
 
 
+def _rerank_results(state: SearchState) -> dict:
+    """HuggingFace cross-encoder로 리랭킹"""
+    hits = state["merged_hits"]
+    query = state["query"]
+
+    if not hits or len(hits) <= 1:
+        return {"merged_hits": hits}
+
+    try:
+        from sentence_transformers import CrossEncoder
+        model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+        pairs = [(query, hit.get("content", "")) for hit in hits]
+        scores = model.predict(pairs)
+
+        # 리랭킹 점수로 재정렬
+        reranked = sorted(zip(hits, scores), key=lambda x: x[1], reverse=True)
+        reranked_hits = [hit for hit, score in reranked[:5]]
+
+        return {"merged_hits": reranked_hits}
+    except Exception as e:
+        # 리랭킹 실패 시 기존 결과 유지 (graceful fallback)
+        print(f"  ⚠️ 리랭킹 실패 (score 정렬 유지): {e}")
+        return {"merged_hits": hits}
+
+
 def _format_search_result(state: SearchState) -> dict:
     """검색 결과를 텍스트로 포맷"""
     hits = state["merged_hits"]
@@ -87,20 +113,22 @@ def _format_search_result(state: SearchState) -> dict:
     return {"result": "\n\n".join(contexts)}
 
 
-# 서브에이전트 그래프 조립 (BM25 + Vector 병렬 → merge → format)
+# 서브에이전트 그래프 조립 (BM25 + Vector 병렬 → merge → rerank → format)
 _search_graph = SubStateGraph(SearchState)
 _search_graph.add_node("bm25", _bm25_search)
 _search_graph.add_node("vector", _vector_search)
 _search_graph.add_node("merge", _merge_results)
+_search_graph.add_node("rerank", _rerank_results)
 _search_graph.add_node("format", _format_search_result)
 
 # 병렬 fan-out: START → bm25 + vector 동시 실행
 _search_graph.add_edge(SUB_START, "bm25")
 _search_graph.add_edge(SUB_START, "vector")
-# fan-in: bm25 + vector → merge
+# fan-in: bm25 + vector → merge → rerank → format
 _search_graph.add_edge("bm25", "merge")
 _search_graph.add_edge("vector", "merge")
-_search_graph.add_edge("merge", "format")
+_search_graph.add_edge("merge", "rerank")
+_search_graph.add_edge("rerank", "format")
 _search_graph.add_edge("format", SUB_END)
 
 _compiled_search = _search_graph.compile()
