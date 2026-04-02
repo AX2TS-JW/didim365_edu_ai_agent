@@ -13,7 +13,7 @@
 | 1 | [프로젝트 개요](#1-프로젝트-개요) | 무엇을, 왜 만들었는가 |
 | 2 | [아키텍처](#2-아키텍처) | 전체 시스템 구조와 통신 흐름 |
 | 3 | [기술 스택](#3-기술-스택) | 사용된 기술과 선택 이유 |
-| 4 | [에이전트 설계](#4-에이전트-설계) | LangChain 기반 ReAct 에이전트 구조 |
+| 4 | [에이전트 설계](#4-에이전트-설계) | LangGraph StateGraph 기반 에이전트 구조 |
 | 5 | [빠른 시작](#5-빠른-시작) | 로컬 환경 세팅 및 실행 |
 | 6 | [사용 예시](#6-사용-예시) | 지원하는 질문 유형과 데모 |
 | 7 | [LangChain 문서 매핑](#7-langchain-문서-매핑) | 프로젝트 코드 ↔ 공식 문서 대응표 |
@@ -50,34 +50,78 @@
 │  :5173      │   {step, content, metadata}  │  :8000       │
 └─────────────┘                             └──────┬───────┘
                                                    │
-                                           create_agent()
+                                            AGENT_MODE=graph
                                                    │
                                            ┌───────▼───────┐
-                                           │  LangChain     │
-                                           │  Agent (ReAct)  │
+                                           │  LangGraph     │
+                                           │  StateGraph     │
+                                           ├────────────────┤
+                                           │ Nodes:          │
+                                           │  parse_query    │← LLM: 질문 분석
+                                           │    ├─ simple    │
+                                           │    ├─ compare   │
+                                           │    ├─ comprehensive
+                                           │    └─ ambiguous │
+                                           │  fetch_data     │← data.go.kr API
+                                           │  search_pdf     │← ES 하이브리드 검색
+                                           │  respond        │← LLM: 답변 생성
                                            ├────────────────┤
                                            │ Tools:          │
                                            │ • 매매 실거래가  │──► data.go.kr API
                                            │ • 전월세 실거래가 │──► data.go.kr API
                                            │ • 전세가율 계산  │──► (내부 계산)
-                                           ├────────────────┤
-                                           │ Cache:          │
-                                           │ Elasticsearch   │──► ES 캐시 (TTL)
+                                           │ • PDF 검색      │──► ES (BM25+kNN)
                                            ├────────────────┤
                                            │ Memory:         │
-                                           │ InMemorySaver   │
+                                           │ AsyncSqliteSaver│── 영속 체크포인트
+                                           │ trim_messages   │── 토큰 폭증 방지
                                            └────────────────┘
+```
+
+### StateGraph 흐름
+
+```
+                    [START]
+                      │
+                      ▼
+                 [parse_query]  ← LLM 1회: 질문 분석 (유형/지역/거래타입)
+                      │
+          ┌───────┬───┼───────────┐
+          ▼       ▼   ▼           ▼
+    "ambiguous" "simple" "compare" "comprehensive"
+          │       │   │           │
+          ▼       ▼   ▼           ▼
+  [ask_clarification] [fetch] [fetch] → [search_pdf]
+          │       │   │           │
+          ▼       └───┴─────┬─────┘
+        [END]               ▼
+                        [respond]  ← LLM 1회: 답변 생성
+                            │
+                            ▼
+                          [END]
 ```
 
 ### 통신 흐름
 
 ```
 사용자 입력 → POST /api/v1/chat (thread_id + message)
-         → AgentService → LangChain Agent
-         → ReAct 루프: 추론 → Tool 선택 → API 호출 → 응답 생성
+         → GraphAgentService → StateGraph
+         → 코드 제어 흐름: parse → fetch/search_pdf → respond
          → SSE 스트리밍: model → tools → done
          → 프론트엔드 렌더링
 ```
+
+### 멀티턴 대화
+
+```
+사용자: "강남구 매매 시세"           → parse(강남구, 매매) → fetch → respond
+사용자: "거기서 전세가도 알려줘"      → parse(강남구, 전세) → fetch → respond  ← 이전 맥락 참조
+사용자: "강남구 투자 전망은?"        → parse(강남구, comprehensive) → fetch → search_pdf → respond
+```
+
+- `add_messages` reducer로 대화 히스토리 자동 누적
+- `AsyncSqliteSaver`로 영속 저장 (서버 재시작 후에도 유지)
+- `trim_messages(max_tokens=4000)`으로 토큰 폭증 방지
 
 ---
 
@@ -87,7 +131,7 @@
 |------|------|------|
 | **Frontend** | React 19, TypeScript, Vite 7, MUI 6, Jotai | 채팅 UI + 상태 관리 |
 | **Backend** | FastAPI, Uvicorn, Python 3.11~3.13 | API 서버 + SSE 스트리밍 |
-| **AI Agent** | LangChain 1.x, LangGraph, OpenAI GPT-4.1 | ReAct 에이전트 + 도구 호출 |
+| **AI Agent** | LangChain 1.x, LangGraph, OpenAI GPT-4.1 | StateGraph 에이전트 + 도구 호출 + PDF RAG |
 | **데이터** | data.go.kr 공공데이터 API | 아파트 매매/전월세 실거래가 |
 | **캐시** | Elasticsearch | ES 캐시 (Cache-Aside 패턴, TTL) |
 | **평가** | DeepEval, Opik, gpt-4o-mini (LLM Judge) | 에이전트 품질 평가 파이프라인 |
