@@ -172,7 +172,7 @@ def _search_trades_from_es(region_code: str, year_month: str) -> list | None:
                     {"term": {"region_code": region_code}},
                     {"term": {"year_month": year_month}},
                 ]}},
-                "size": 30,
+                "size": 100,
                 "sort": [{"deal_amount": {"order": "desc"}}],
             },
         )
@@ -231,7 +231,7 @@ def _search_rentals_from_es(region_code: str, year_month: str) -> list | None:
                     {"term": {"region_code": region_code}},
                     {"term": {"year_month": year_month}},
                 ]}},
-                "size": 30,
+                "size": 100,
                 "sort": [{"deposit": {"order": "desc"}}],
             },
         )
@@ -292,7 +292,7 @@ def _fetch_trades_from_api(region_code: str, year_month: str) -> list | str:
         "LAWD_CD": region_code,
         "DEAL_YMD": year_month,
         "pageNo": "1",
-        "numOfRows": "30",
+        "numOfRows": "100",
     }
 
     try:
@@ -332,7 +332,7 @@ def _fetch_rentals_from_api(region_code: str, year_month: str) -> list | str:
         "LAWD_CD": region_code,
         "DEAL_YMD": year_month,
         "pageNo": "1",
-        "numOfRows": "30",
+        "numOfRows": "100",
     }
 
     try:
@@ -373,8 +373,7 @@ def _format_trades(trades: list, region: str, region_code: str, year_month: str,
     if not valid:
         return f"{region} {year_month} 기간에 유효한 거래 내역이 없습니다 (모두 해제됨)."
 
-    summaries = []
-    for t in valid[:10]:
+    def _format_one_trade(t, from_es):
         if from_es:
             apt_name = t.get("apt_name", "알수없음")
             price_val = t.get("deal_amount", 0)
@@ -392,46 +391,45 @@ def _format_trades(trades: list, region: str, region_code: str, year_month: str,
             deal_day = (t.get("dealDay") or "?").strip()
             trade_type = (t.get("dealingGbn") or "").strip()
 
-        if isinstance(price_val, (int, float)):
-            price_display = f"{price_val / 10000:.1f}억원"
-        else:
-            price_display = f"{price_val}만원"
-
-        line = (
-            f"- {dong} {apt_name} | {area}㎡ | {floor}층 | "
-            f"{price_display} | {year_month[:4]}.{year_month[4:]}.{deal_day}"
-        )
+        price_display = f"{price_val / 10000:.1f}억원" if isinstance(price_val, (int, float)) else f"{price_val}만원"
+        line = f"- {dong} {apt_name} | {area}㎡ | {floor}층 | {price_display} | {year_month[:4]}.{year_month[4:]}.{deal_day}"
         if trade_type:
             line += f" | {trade_type}"
-        summaries.append(line)
+        return line
 
-    total = len(valid)
+    # 가격순 정렬 (통계 + 상위/하위 표시용)
+    def _get_price(t):
+        p = t.get("deal_amount", 0) if from_es else _parse_price((t.get("dealAmount") or "0").strip().replace(",", ""))
+        return p if isinstance(p, (int, float)) else 0
+
+    valid_sorted = sorted(valid, key=_get_price, reverse=True)
+    total = len(valid_sorted)
     source = "ES 캐시" if from_es else "API"
 
-    # 요약 통계 계산
-    prices = []
-    for t in valid:
-        p = t.get("deal_amount", 0) if from_es else _parse_price((t.get("dealAmount") or "0").strip().replace(",", ""))
-        if isinstance(p, (int, float)) and p > 0:
-            prices.append(p)
-
+    # 요약 통계 (전체 기준)
+    prices = [_get_price(t) for t in valid_sorted if _get_price(t) > 0]
     stats = ""
     if prices:
         avg_p = sum(prices) / len(prices)
         max_p = max(prices)
         min_p = min(prices)
-        stats = f"\n■ 요약 통계: 평균 {avg_p/10000:.1f}억원 | 최고 {max_p/10000:.1f}억원 | 최저 {min_p/10000:.1f}억원\n"
+        stats = f"\n■ 요약 통계 ({total}건 전체 기준): 평균 {avg_p/10000:.1f}억원 | 최고 {max_p/10000:.1f}억원 | 최저 {min_p/10000:.1f}억원\n"
 
-    # total_count: API에서 받은 실제 전체 건수
-    if total_count > total:
-        count_label = f"전체 {total_count}건 중 {total}건 조회"
-    elif total_count > 0:
-        count_label = f"총 {total_count}건"
-    else:
-        count_label = f"조회된 {total}건"
-    header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 매매 실거래가 — {count_label} (상위 10건, {source})\n{stats}\n"
+    # 상위 5건
+    top_lines = [_format_one_trade(t, from_es) for t in valid_sorted[:5]]
+    # 하위 5건 (상위와 겹치지 않도록)
+    bottom_items = valid_sorted[-5:] if total > 10 else valid_sorted[5:]
+    bottom_lines = [_format_one_trade(t, from_es) for t in reversed(bottom_items)] if bottom_items else []
+
+    actual_total = total_count if total_count > 0 else total
+    header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 매매 실거래가 — 전체 {actual_total}건\n{stats}\n"
+
+    body = "▸ 상위 매물\n" + "\n".join(top_lines)
+    if bottom_lines:
+        body += "\n\n▸ 하위 매물\n" + "\n".join(bottom_lines)
+
     footer = "\n\n⚠️ 참고: 실거래가 데이터는 신고 지연이 있어 최근 1~2개월은 데이터가 적을 수 있습니다."
-    return header + "\n".join(summaries) + footer
+    return header + body + footer
 
 
 def _format_rentals(rentals: list, region: str, region_code: str, year_month: str, from_es: bool = False, total_count: int = 0) -> str:
@@ -439,8 +437,7 @@ def _format_rentals(rentals: list, region: str, region_code: str, year_month: st
     if not rentals:
         return f"{region} {year_month} 기간에 전월세 거래 내역이 없습니다."
 
-    summaries = []
-    for t in rentals[:10]:
+    def _format_one_rental(t, from_es):
         if from_es:
             apt_name = t.get("apt_name", "알수없음")
             deposit_val = t.get("deposit", 0)
@@ -458,10 +455,7 @@ def _format_rentals(rentals: list, region: str, region_code: str, year_month: st
             dong = (t.get("umdNm") or "").strip()
             deal_day = (t.get("dealDay") or "?").strip()
 
-        if isinstance(deposit_val, (int, float)):
-            deposit_display = f"{deposit_val / 10000:.1f}억원"
-        else:
-            deposit_display = f"{deposit_val}만원"
+        deposit_display = f"{deposit_val / 10000:.1f}억원" if isinstance(deposit_val, (int, float)) else f"{deposit_val}만원"
 
         if monthly_rent == "0" or monthly_rent == "":
             rent_type = "전세"
@@ -470,37 +464,41 @@ def _format_rentals(rentals: list, region: str, region_code: str, year_month: st
             rent_type = "월세"
             price_str = f"보증금 {deposit_display} / 월 {monthly_rent}만원"
 
-        summaries.append(
-            f"- {dong} {apt_name} | {area}㎡ | {floor}층 | "
-            f"[{rent_type}] {price_str} | {year_month[:4]}.{year_month[4:]}.{deal_day}"
-        )
+        return f"- {dong} {apt_name} | {area}㎡ | {floor}층 | [{rent_type}] {price_str} | {year_month[:4]}.{year_month[4:]}.{deal_day}"
 
-    total = len(rentals)
+    # 보증금순 정렬
+    def _get_deposit(t):
+        d = t.get("deposit", 0) if from_es else _parse_price((t.get("deposit") or "0").strip().replace(",", ""))
+        return d if isinstance(d, (int, float)) else 0
+
+    sorted_rentals = sorted(rentals, key=_get_deposit, reverse=True)
+    total = len(sorted_rentals)
     source = "ES 캐시" if from_es else "API"
 
-    # 요약 통계 계산 (보증금 기준)
-    deposits = []
-    for t in rentals:
-        d = t.get("deposit", 0) if from_es else _parse_price((t.get("deposit") or "0").strip().replace(",", ""))
-        if isinstance(d, (int, float)) and d > 0:
-            deposits.append(d)
-
+    # 요약 통계 (전체 기준)
+    deposits = [_get_deposit(t) for t in sorted_rentals if _get_deposit(t) > 0]
     stats = ""
     if deposits:
         avg_d = sum(deposits) / len(deposits)
         max_d = max(deposits)
         min_d = min(deposits)
-        stats = f"\n■ 보증금 요약: 평균 {avg_d/10000:.1f}억원 | 최고 {max_d/10000:.1f}억원 | 최저 {min_d/10000:.1f}억원\n"
+        stats = f"\n■ 보증금 요약 ({total}건 전체 기준): 평균 {avg_d/10000:.1f}억원 | 최고 {max_d/10000:.1f}억원 | 최저 {min_d/10000:.1f}억원\n"
 
-    if total_count > total:
-        count_label = f"전체 {total_count}건 중 {total}건 조회"
-    elif total_count > 0:
-        count_label = f"총 {total_count}건"
-    else:
-        count_label = f"조회된 {total}건"
-    header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 전월세 실거래가 — {count_label} (상위 10건, {source})\n{stats}\n"
+    # 상위 5건
+    top_lines = [_format_one_rental(t, from_es) for t in sorted_rentals[:5]]
+    # 하위 5건
+    bottom_items = sorted_rentals[-5:] if total > 10 else sorted_rentals[5:]
+    bottom_lines = [_format_one_rental(t, from_es) for t in reversed(bottom_items)] if bottom_items else []
+
+    actual_total = total_count if total_count > 0 else total
+    header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 전월세 실거래가 — 전체 {actual_total}건\n{stats}\n"
+
+    body = "▸ 상위 매물\n" + "\n".join(top_lines)
+    if bottom_lines:
+        body += "\n\n▸ 하위 매물\n" + "\n".join(bottom_lines)
+
     footer = "\n\n⚠️ 참고: 실거래가 데이터는 신고 지연이 있어 최근 1~2개월은 데이터가 적을 수 있습니다."
-    return header + "\n".join(summaries) + footer
+    return header + body + footer
 
 
 # ──────────────────────────────────────────────────────────
