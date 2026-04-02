@@ -255,12 +255,18 @@ def create_deep_real_estate_agent(checkpointer=None):
         ),
     }
 
+    # 장기 기억: AGENTS.md에서 도메인 지식 로드
+    import os
+    memory_path = os.path.join(os.path.dirname(__file__), "AGENTS.md")
+    memory_files = [memory_path] if os.path.exists(memory_path) else None
+
     agent = create_deep_agent(
         model=model,
         tools=[search_apartment_trades, search_apartment_rentals, calculate_jeonse_ratio, search_pdf_reports],
         system_prompt=get_system_prompt(),
         response_format=ToolStrategy(ChatResponse),
         subagents=[data_collector, analyst, reporter],
+        memory=memory_files,
         checkpointer=checkpointer,
     )
 
