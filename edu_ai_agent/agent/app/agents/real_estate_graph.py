@@ -32,6 +32,7 @@ from app.core.config import settings
 
 class AgentState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]  # 대화 히스토리 (reducer: 새 메시지 추가)
+    intent: str              # "TOOL" (도구 호출 필요) 또는 "DIRECT" (LLM 직접 답변)
     query_type: str          # "simple", "compare", "ambiguous", "jeonse_ratio", "comprehensive"
     regions: list[str]       # ["강남구"] 또는 ["강남구", "송파구"]
     trade_type: str          # "매매", "전세", "전세가율"
@@ -69,6 +70,63 @@ def _trim_messages(messages: list) -> list:
     except Exception:
         # trim 실패 시 최근 10개만 유지 (폴백)
         return messages[-10:] if len(messages) > 10 else messages
+
+
+# ──────────────────────────────────────────────────────────
+# 노드 0: 인텐트 판별 — 도구 호출이 필요한가?
+# ──────────────────────────────────────────────────────────
+
+def intent_check(state: AgentState) -> dict:
+    """도구 호출이 필요한 질문인지 LLM이 판단합니다."""
+    llm = _get_llm()
+    trimmed = _trim_messages(state["messages"])
+
+    response = llm.invoke([
+        SystemMessage(content=(
+            "당신은 부동산 실거래가 AI 에이전트의 인텐트 분류기입니다.\n"
+            "사용자의 질문을 보고 TOOL 또는 DIRECT 중 하나만 답하세요.\n\n"
+            "TOOL: 새로운 실거래가 데이터 조회가 필요한 경우\n"
+            "  - 특정 지역의 매매/전세 시세 조회\n"
+            "  - 전세가율 계산\n"
+            "  - 지역 비교\n"
+            "  - 투자 판단 (PDF 검색 필요)\n\n"
+            "DIRECT: 이전 대화 맥락만으로 답변 가능한 경우\n"
+            "  - '자세히 보여줘', '정리해줘', '요약해줘'\n"
+            "  - '더 알려줘', '목록으로 보여줘'\n"
+            "  - 인사, 감사, 일반 대화\n"
+            "  - 이전에 조회한 데이터에 대한 추가 질문\n\n"
+            "TOOL 또는 DIRECT 중 하나만 답하세요."
+        )),
+        *trimmed,
+    ])
+
+    intent = "TOOL" if "TOOL" in response.content.upper() else "DIRECT"
+    return {"intent": intent}
+
+
+def direct_respond(state: AgentState) -> dict:
+    """도구 호출 없이 이전 대화 맥락만으로 LLM이 직접 답변합니다."""
+    llm = _get_llm()
+    trimmed = _trim_messages(state["messages"])
+
+    # 공통 서식 규칙
+    format_rule = (
+        "답변에 마크다운 문법(**, ##, ###, - 목록 등)을 절대 사용하지 마세요. "
+        "이모지 섹션 헤더와 구분선(────), ▸ 기호로 깔끔하게 정리하세요. "
+        "이전 대화에서 조회된 데이터가 있다면 그 데이터를 활용하여 답변하세요."
+    )
+
+    response = llm.invoke([
+        SystemMessage(content=(
+            "부동산 실거래가 AI 에이전트입니다. "
+            "이전 대화 맥락을 참고하여 사용자의 질문에 답변하세요. "
+            "새로운 데이터 조회 없이, 이미 대화에 있는 정보를 활용하세요. "
+            f"{format_rule}"
+        )),
+        *trimmed,
+    ])
+
+    return {"response": response.content, "messages": [response]}
 
 
 # ──────────────────────────────────────────────────────────
@@ -353,6 +411,8 @@ def create_real_estate_graph(checkpointer=None):
     graph = StateGraph(AgentState)
 
     # 노드 등록
+    graph.add_node("intent", intent_check)
+    graph.add_node("direct_respond", direct_respond)
     graph.add_node("parse", parse_query)
     graph.add_node("ask_clarification", ask_clarification)
     graph.add_node("fetch_simple", fetch_data_simple)
@@ -360,8 +420,18 @@ def create_real_estate_graph(checkpointer=None):
     graph.add_node("search_pdf", search_pdf)
     graph.add_node("respond", generate_response)
 
-    # 엣지 연결
-    graph.add_edge(START, "parse")
+    # 인텐트 분기: DIRECT → LLM 직접 답변, TOOL → 기존 StateGraph
+    def route_by_intent(state: AgentState) -> str:
+        return "direct_respond" if state.get("intent") == "DIRECT" else "parse"
+
+    graph.add_edge(START, "intent")
+    graph.add_conditional_edges("intent", route_by_intent, {
+        "direct_respond": "direct_respond",
+        "parse": "parse",
+    })
+    graph.add_edge("direct_respond", END)
+
+    # 기존 경로
     graph.add_conditional_edges("parse", route_by_query_type, {
         "ask_clarification": "ask_clarification",
         "fetch_simple": "fetch_simple",

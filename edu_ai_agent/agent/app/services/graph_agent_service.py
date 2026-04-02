@@ -68,6 +68,7 @@ class GraphAgentService:
             # 다른 필드는 매 요청마다 초기화 (이전 질문의 query_type 등이 남지 않도록)
             input_state = {
                 "messages": [HumanMessage(content=user_messages)],
+                "intent": "",
                 "query_type": "",
                 "regions": [],
                 "trade_type": "",
@@ -87,8 +88,29 @@ class GraphAgentService:
                     if node_name == "__start__":
                         continue
 
+                    # intent 노드: 인텐트 판별
+                    if node_name == "intent":
+                        intent = node_output.get("intent", "TOOL")
+                        custom_logger.info(f"[Graph] 인텐트: {intent}")
+                        yield json.dumps({
+                            "step": "model",
+                            "tool_calls": [f"인텐트: {intent}"]
+                        }, ensure_ascii=False)
+
+                    # direct_respond 노드: LLM 직접 답변
+                    elif node_name == "direct_respond":
+                        response = node_output.get("response", "")
+                        yield json.dumps({
+                            "step": "done",
+                            "message_id": str(uuid.uuid4()),
+                            "role": "assistant",
+                            "content": response,
+                            "metadata": {},
+                            "created_at": datetime.utcnow().isoformat(),
+                        }, ensure_ascii=False)
+
                     # parse 노드: 질문 분석 완료
-                    if node_name == "parse":
+                    elif node_name == "parse":
                         qt = node_output.get("query_type", "")
                         regions = node_output.get("regions", [])
                         trade_type = node_output.get("trade_type", "")

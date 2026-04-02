@@ -148,17 +148,25 @@ edu_ai_agent/
 ├── agent/                              # Backend
 │   ├── app/
 │   │   ├── agents/
-│   │   │   ├── real_estate_agent.py    # create_agent() 에이전트 조립
-│   │   │   ├── tools.py                # @tool 매매/전월세/전세가율 조회 + 지역명 검증
-│   │   │   └── prompts.py             # get_system_prompt() 동적 프롬프트
+│   │   │   ├── graph_agent.py         # StateGraph 에이전트 (3주차~, 기본)
+│   │   │   ├── real_estate_agent.py   # ReAct 에이전트 (레거시, AGENT_MODE=react)
+│   │   │   ├── tools.py               # @tool 매매/전월세/전세가율 조회 + 지역명 검증
+│   │   │   └── prompts.py            # get_system_prompt() 동적 프롬프트 + 답변 서식
+│   │   ├── pipeline/                   # PDF RAG 파이프라인 (3주차)
+│   │   │   ├── pdf_loader.py          # PyPDFLoader 페이지별 파싱
+│   │   │   ├── chunker.py            # RecursiveCharacterTextSplitter (500자/100자 겹침)
+│   │   │   ├── embedder.py           # OpenAI text-embedding-3-small (1536차원)
+│   │   │   ├── es_client.py          # ES 벌크 적재 + 인덱스 관리
+│   │   │   └── search.py             # 하이브리드 검색 (BM25 + kNN 점수 합산)
 │   │   ├── evaluation/                 # 2주차 평가 체계
 │   │   │   ├── llm_judge.py           # LLM-as-a-Judge (gpt-4o-mini)
 │   │   │   ├── deepeval_metrics.py    # DeepEval 메트릭 (Relevancy/Faithfulness/GEval)
 │   │   │   └── tool_usage_metric.py   # 규칙 기반 Tool 사용 평가
 │   │   ├── api/routes/                 # REST 엔드포인트
 │   │   ├── services/
-│   │   │   └── agent_service.py       # 에이전트 실행 + SSE 스트리밍
-│   │   └── core/config.py             # 환경변수
+│   │   │   ├── graph_agent_service.py # StateGraph SSE 스트리밍 (기본)
+│   │   │   └── agent_service.py       # ReAct SSE 스트리밍 (레거시)
+│   │   └── core/config.py             # 환경변수 + AGENT_MODE
 │   ├── scripts/                        # 평가 스크립트
 │   │   ├── run_diagnostic.py          # 규칙 기반 진단 (Day 2)
 │   │   ├── run_judge_eval.py          # LLM Judge 평가 (Day 3)
@@ -176,13 +184,15 @@ edu_ai_agent/
 
 ### 에이전트 구성 요소
 
-| 구성 요소 | 파일 | LangChain 개념 |
-|-----------|------|----------------|
-| **모델** | `real_estate_agent.py` | `ChatOpenAI(model="gpt-4.1")` |
+| 구성 요소 | 파일 | LangChain/LangGraph 개념 |
+|-----------|------|--------------------------|
+| **그래프** | `graph_agent.py` | `StateGraph` — 노드(parse/fetch/search_pdf/respond) + 조건부 엣지 |
+| **상태** | `graph_agent.py` | `AgentState(messages: Annotated[list, add_messages])` — reducer로 대화 누적 |
+| **모델** | `graph_agent.py` | `ChatOpenAI(model="gpt-4.1")` |
 | **도구** | `tools.py` | `@tool` 데코레이터로 정의된 3개 함수 (매매/전월세/전세가율) |
-| **프롬프트** | `prompts.py` | `get_system_prompt()` 함수 — 매 요청마다 최신 날짜 주입, 기초자치단체 규칙 |
-| **메모리** | `agent_service.py` | `InMemorySaver` (thread_id 기반 멀티턴) |
-| **응답 포맷** | `real_estate_agent.py` | `ToolStrategy(ChatResponse)` 구조화 출력 |
+| **PDF 검색** | `pipeline/search.py` | 하이브리드 검색 (BM25 + kNN 점수 합산) |
+| **프롬프트** | `prompts.py` | `get_system_prompt()` 함수 — 최신 날짜 주입, 기초자치단체 규칙, 답변 서식 |
+| **메모리** | `graph_agent.py` | `AsyncSqliteSaver` (영속 체크포인트) + `trim_messages(max_tokens=4000)` |
 
 ### 사용 가능한 Tool
 
@@ -191,6 +201,7 @@ edu_ai_agent/
 | `search_apartment_trades` | 아파트 매매 실거래가 조회 (최대 12개월 자동 탐색, 요약 통계 포함) | data.go.kr (15126468) |
 | `search_apartment_rentals` | 아파트 전월세 실거래가 조회 (최대 12개월 자동 탐색, 요약 통계 포함) | data.go.kr (15126474) |
 | `calculate_jeonse_ratio` | 전세가율 계산 (매매+전세를 한번에 조회, 갭/판단근거 제공) | 내부 계산 |
+| `search_pdf_reports` | PDF 보고서 하이브리드 검색 (BM25 + kNN, 상위 5청크 반환) | Elasticsearch (1,082청크) |
 
 ---
 
@@ -279,14 +290,16 @@ pnpm dev
 
 이 프로젝트의 각 파일이 LangChain 공식 문서의 어떤 개념에 대응하는지 정리합니다.
 
-| 프로젝트 파일 | LangChain 문서 |
-|--------------|----------------|
-| `real_estate_agent.py` | [Quickstart](https://docs.langchain.com/oss/python/langchain/quickstart), [Agents](https://docs.langchain.com/oss/python/langchain/agents) |
+| 프로젝트 파일 | LangChain/LangGraph 문서 |
+|--------------|--------------------------|
+| `graph_agent.py` (StateGraph) | [LangGraph Quickstart](https://langchain-ai.github.io/langgraph/tutorials/introduction/) |
+| `graph_agent.py` (add_messages) | [LangGraph Messages](https://langchain-ai.github.io/langgraph/concepts/low_level/#reducers) |
+| `graph_agent.py` (AsyncSqliteSaver) | [LangGraph Persistence](https://langchain-ai.github.io/langgraph/concepts/persistence/) |
 | `tools.py` | [Tools](https://docs.langchain.com/oss/python/langchain/tools) |
 | `prompts.py` | [Agents > System Prompts](https://docs.langchain.com/oss/python/langchain/agents) |
-| `agent_service.py` (streaming) | [Streaming](https://docs.langchain.com/oss/python/langchain/streaming/overview) |
-| `agent_service.py` (memory) | [Short-term Memory](https://docs.langchain.com/oss/python/langchain/short-term-memory) |
-| `ChatResponse` dataclass | [Structured Output](https://docs.langchain.com/oss/python/langchain/structured-output) |
+| `graph_agent_service.py` (streaming) | [Streaming](https://docs.langchain.com/oss/python/langchain/streaming/overview) |
+| `pipeline/` (PDF RAG) | [RAG Tutorial](https://docs.langchain.com/oss/python/langchain/tutorials/rag/) |
+| `real_estate_agent.py` (레거시 ReAct) | [Agents](https://docs.langchain.com/oss/python/langchain/agents) |
 
 ---
 
@@ -294,7 +307,8 @@ pnpm dev
 
 | 문서 | 설명 |
 |------|------|
-| [학습 로드맵](docs/부동산_에이전트_학습_로드맵.md) | 4주차 학습 전략 및 일자별 커리큘럼 + 2주차 진행 결과 |
+| [학습 로드맵](docs/부동산_에이전트_학습_로드맵.md) | 4주차 학습 전략 및 일자별 커리큘럼 + 2~3주차 진행 결과 |
 | [1-2주차 학습 회고록](docs/1-2주차_학습_회고록.md) | 에이전트 구현 + 평가 파이프라인 구축 회고 + Q&A 23문항 |
+| [3주차 학습 회고록](docs/3주차_학습_회고록.md) | StateGraph 전환 + PDF RAG + 멀티턴 대화 회고 |
 | [Backend 상세](edu_ai_agent/agent/README.md) | Agent 서버 설정 및 구조 |
 | [API 스펙](edu_ai_agent/agent/docs/spec.md) | API 엔드포인트 명세 |
