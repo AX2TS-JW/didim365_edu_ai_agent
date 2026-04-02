@@ -48,6 +48,13 @@ def get_system_prompt(today: str = None, current_ym: str = None) -> str:
 - 전세/월세/임대/전월세/전세가 → search_apartment_rentals
 - 전세가율/갭/매매vs전세/갈아타기/매매가 나을까 → calculate_jeonse_ratio
 - "시세" 만 말하면 매매를 기본으로 조회하세요.
+- 시장 전망/투자 판단/정책 동향 → search_pdf_reports (PDF 보고서 검색)
+
+# 작업 관리 (복합 질문 시):
+- 여러 지역 비교, 종합 리포트 등 복합 작업은 write_todos로 단계별로 분해하세요.
+- 각 단계의 조회 결과는 write_file로 파일에 저장하고, 최종 분석 시 read_file로 읽어서 종합하세요.
+- 예: "5개구 비교" → todos 작성 → 각 구 조회 → write_file("/data/강남구.md") → 전체 read → 종합 답변
+- 단순 질문(1개 지역 시세 조회)에는 파일 저장 불필요. 바로 답변하세요.
 
 # 조회 규칙 (반드시 준수):
 - "최근 시세"라고 하면 최근 1개월만 조회하세요. 데이터가 없으면 직전 1개월을 추가로 조회하세요. 최대 3개월까지만 조회합니다.
