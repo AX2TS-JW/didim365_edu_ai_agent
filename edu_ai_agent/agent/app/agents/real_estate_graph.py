@@ -82,7 +82,8 @@ _PARSE_PROMPT = """사용자의 부동산 질문을 분석하여 아래 JSON 형
 
 분석 기준:
 - query_type: "simple"(단일 지역 조회), "compare"(2개 지역 비교), "jeonse_ratio"(전세가율/갈아타기), "comprehensive"(투자 판단/전망/사도될까 등 종합 분석 필요), "ambiguous"(지역 없음/모호)
-- regions: 기초자치단체(구/시/군) 이름 목록. 동 이름(판교, 잠실)이나 광역자치단체(서울, 부산)는 "ambiguous"로 분류
+- regions: 사용자가 직접 말한 기초자치단체(구/시/군) 이름만 사용. 절대 동 이름을 시군구로 자체 변환하지 마세요. "개포동"→"강남구", "잠실"→"송파구" 이런 변환 금지. 동 이름이 들어오면 regions를 비우고 "ambiguous"로 분류
+- 이전 대화 맥락: 현재 질문에 지역이 없지만 이전 대화에서 기초자치단체를 조회한 적이 있다면, 그 지역을 regions에 사용하세요. 예: 이전에 "강남구 매매"를 조회했고 현재 "전세 시세"만 물으면 → regions: ["강남구"]
 - trade_type: "매매", "전세", "전세가율"
 - year_month: 조회할 년월 (YYYYMM). 미래 월은 현재 년월로 대체. "최근"이면 현재 년월
 
@@ -124,9 +125,22 @@ def parse_query(state: AgentState) -> dict:
             "year_month": current_ym,
         }
 
+    # 코드 레벨 검증: regions가 실제 기초자치단체인지 확인
+    from app.agents.tools import _resolve_region_code_fallback
+    regions = parsed.get("regions", [])
+    validated_regions = []
+    for r in regions:
+        if _resolve_region_code_fallback(r) is not None:
+            validated_regions.append(r)
+
+    # 검증 통과한 지역이 없으면 ambiguous로 강제
+    query_type = parsed.get("query_type", "ambiguous")
+    if query_type != "ambiguous" and not validated_regions:
+        query_type = "ambiguous"
+
     return {
-        "query_type": parsed.get("query_type", "ambiguous"),
-        "regions": parsed.get("regions", []),
+        "query_type": query_type,
+        "regions": validated_regions,
         "trade_type": parsed.get("trade_type", "매매"),
         "year_month": parsed.get("year_month", current_ym),
     }
@@ -144,9 +158,13 @@ def ask_clarification(state: AgentState) -> dict:
 
     response = llm.invoke([
         SystemMessage(content=(
-            "사용자의 부동산 질문이 모호합니다. "
-            "기초자치단체(구/시/군) 단위의 지역명을 확인하는 짧은 되묻기 응답을 생성하세요. "
-            "예: '어느 지역(구/시/군)의 시세를 조회할까요?'"
+            "사용자의 부동산 질문에서 기초자치단체(구/시/군) 단위의 지역을 확인해야 합니다. "
+            "아래 규칙에 따라 짧은 되묻기 응답을 생성하세요:\n"
+            "1) 동/읍/면 이름인 경우: 해당 동이 속한 기초자치단체를 알려주고 확인을 요청하세요. "
+            "예: '개포동은 강남구에 속합니다. 강남구 매매 시세를 조회할까요?'\n"
+            "2) 광역자치단체(서울, 부산 등)인 경우: 어느 구/시/군인지 되물어보세요. "
+            "예: '서울의 어느 구를 조회할까요? (예: 강남구, 서초구, 송파구)'\n"
+            "3) 지역이 전혀 없는 경우: '어느 지역(구/시/군)의 시세를 조회할까요?'"
         )),
         HumanMessage(content=user_msg),
     ])
@@ -280,7 +298,8 @@ def generate_response(state: AgentState) -> dict:
         "3) 핵심 수치는 ▸ 기호를 사용 (예: 평균 매매가 ▸ 34.3억원)\n"
         "4) 긴 설명보다 짧은 문장으로 끊어서 작성\n"
         "5) 💡 종합 의견 섹션 맨 앞에 '✅ 결론: (한 줄 핵심 요약)'을 먼저 작성하고, 그 아래에 상세 설명\n"
-        "6) 출처는 맨 아래에 📎 출처 섹션으로 모아주세요"
+        "6) 출처는 맨 아래에 📎 출처 섹션으로 모아주세요\n"
+        "7) 데이터는 기초자치단체(구/시/군) 전체 데이터입니다. 특정 동만 필터링하지 말고 전체 데이터를 기반으로 답변하세요"
     )
 
     if query_type == "comprehensive":

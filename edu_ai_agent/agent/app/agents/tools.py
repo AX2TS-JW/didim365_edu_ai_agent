@@ -422,9 +422,13 @@ def _format_trades(trades: list, region: str, region_code: str, year_month: str,
         min_p = min(prices)
         stats = f"\n■ 요약 통계: 평균 {avg_p/10000:.1f}억원 | 최고 {max_p/10000:.1f}억원 | 최저 {min_p/10000:.1f}억원\n"
 
-    # total_count: API에서 받은 실제 전체 건수, 0이면 조회된 건수 사용
-    actual_total = total_count if total_count > 0 else total
-    count_label = f"전체 {actual_total}건 중 {total}건 조회" if actual_total > total else f"총 {total}건"
+    # total_count: API에서 받은 실제 전체 건수
+    if total_count > total:
+        count_label = f"전체 {total_count}건 중 {total}건 조회"
+    elif total_count > 0:
+        count_label = f"총 {total_count}건"
+    else:
+        count_label = f"조회된 {total}건"
     header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 매매 실거래가 — {count_label} (상위 10건, {source})\n{stats}\n"
     footer = "\n\n⚠️ 참고: 실거래가 데이터는 신고 지연이 있어 최근 1~2개월은 데이터가 적을 수 있습니다."
     return header + "\n".join(summaries) + footer
@@ -488,8 +492,12 @@ def _format_rentals(rentals: list, region: str, region_code: str, year_month: st
         min_d = min(deposits)
         stats = f"\n■ 보증금 요약: 평균 {avg_d/10000:.1f}억원 | 최고 {max_d/10000:.1f}억원 | 최저 {min_d/10000:.1f}억원\n"
 
-    actual_total = total_count if total_count > 0 else total
-    count_label = f"전체 {actual_total}건 중 {total}건 조회" if actual_total > total else f"총 {total}건"
+    if total_count > total:
+        count_label = f"전체 {total_count}건 중 {total}건 조회"
+    elif total_count > 0:
+        count_label = f"총 {total_count}건"
+    else:
+        count_label = f"조회된 {total}건"
     header = f"📊 {region}({region_code}) {year_month[:4]}년 {year_month[4:]}월 전월세 실거래가 — {count_label} (상위 10건, {source})\n{stats}\n"
     footer = "\n\n⚠️ 참고: 실거래가 데이터는 신고 지연이 있어 최근 1~2개월은 데이터가 적을 수 있습니다."
     return header + "\n".join(summaries) + footer
