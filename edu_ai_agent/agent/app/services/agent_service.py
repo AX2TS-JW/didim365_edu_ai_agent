@@ -24,14 +24,22 @@ class AgentService:
         """LangChain 에이전트 생성"""
         # IMP: create_agent()를 사용하여 LangGraph 기반의 에이전트를 생성.
         # LLM 모델, 사용할 도구(Tools), 시스템 프롬프트, 상태 저장소(Checkpointer), 응답 포맷(ToolStrategy)을 결합.
-        from app.agents.real_estate_agent import create_real_estate_agent
+        import os
         from langgraph.checkpoint.memory import InMemorySaver
 
         # 체크포인터는 한 번만 생성 (멀티턴 대화를 위해 재사용)
         if self.checkpointer is None:
             self.checkpointer = InMemorySaver()
 
-        agent = create_real_estate_agent(checkpointer=self.checkpointer)
+        # AGENT_MODE=deep이면 Deep Agent, 아니면 기존 ReAct
+        agent_mode = os.getenv("AGENT_MODE", "react")
+        if agent_mode == "deep":
+            from app.agents.real_estate_agent import create_deep_real_estate_agent
+            agent = create_deep_real_estate_agent(checkpointer=self.checkpointer)
+            custom_logger.info("[Deep Agent] create_deep_agent()로 생성")
+        else:
+            from app.agents.real_estate_agent import create_real_estate_agent
+            agent = create_real_estate_agent(checkpointer=self.checkpointer)
 
         # Opik 트레이싱: 에이전트 실행 과정을 자동 기록
         opik_settings = settings.OPIK

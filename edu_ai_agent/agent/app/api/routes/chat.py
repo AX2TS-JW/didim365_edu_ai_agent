@@ -12,13 +12,14 @@ from fastapi.responses import StreamingResponse
 
 chat_router = APIRouter()
 
-# 에이전트 모드: "react" = ReAct 메인 + StateGraph 서브에이전트 (기본), "graph" = StateGraph 전체 에이전트
+# 에이전트 모드: "deep" = Deep Agent (4주차), "react" = ReAct (기본), "graph" = StateGraph 전체
 import os
-_AGENT_MODE = os.getenv("AGENT_MODE", "react")
+_AGENT_MODE = os.getenv("AGENT_MODE", "deep")
 
 if _AGENT_MODE == "graph":
     _agent_service = GraphAgentService()
 else:
+    # react와 deep 모두 AgentService 사용 (내부에서 AGENT_MODE로 분기)
     _agent_service = AgentService()
 
 

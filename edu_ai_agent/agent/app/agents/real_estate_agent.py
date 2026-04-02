@@ -172,16 +172,8 @@ class ChatResponse:
 
 
 def create_real_estate_agent(checkpointer=None):
-    """부동산 실거래가 분석 에이전트를 생성합니다.
+    """부동산 실거래가 분석 에이전트를 생성합니다. (ReAct 모드)"""
 
-    Args:
-        checkpointer: 대화 상태 저장소. None이면 InMemorySaver 사용.
-
-    Returns:
-        LangChain Agent 인스턴스 (astream 호출 가능)
-    """
-
-    # [Step 4] 모델 초기화
     model = ChatOpenAI(
         model=settings.OPENAI_MODEL,
         api_key=settings.OPENAI_API_KEY,
@@ -190,12 +182,42 @@ def create_real_estate_agent(checkpointer=None):
         streaming=True,
     )
 
-    # [Step 6] 메모리 (대화 상태 유지)
     if checkpointer is None:
         checkpointer = InMemorySaver()
 
-    # [Step 7] 에이전트 조립
     agent = create_agent(
+        model=model,
+        tools=[search_apartment_trades, search_apartment_rentals, calculate_jeonse_ratio, search_pdf_reports],
+        system_prompt=get_system_prompt(),
+        response_format=ToolStrategy(ChatResponse),
+        checkpointer=checkpointer,
+    )
+
+    return agent
+
+
+def create_deep_real_estate_agent(checkpointer=None):
+    """부동산 실거래가 분석 Deep Agent를 생성합니다. (4주차)
+
+    create_agent 대비 추가 기능:
+    - write_todos: 복합 질문을 단계별로 분해
+    - VFS: 중간 결과를 파일로 저장 (토큰 절약)
+    - task(): 서브에이전트에게 작업 위임 (컨텍스트 격리)
+    """
+    from deepagents import create_deep_agent
+
+    model = ChatOpenAI(
+        model=settings.OPENAI_MODEL,
+        api_key=settings.OPENAI_API_KEY,
+        temperature=0.1,
+        max_tokens=4096,
+        streaming=True,
+    )
+
+    if checkpointer is None:
+        checkpointer = InMemorySaver()
+
+    agent = create_deep_agent(
         model=model,
         tools=[search_apartment_trades, search_apartment_rentals, calculate_jeonse_ratio, search_pdf_reports],
         system_prompt=get_system_prompt(),
