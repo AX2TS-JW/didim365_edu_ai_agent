@@ -14,7 +14,7 @@ chat_router = APIRouter()
 
 # 에이전트 모드: "graph" = StateGraph (3주차), "react" = ReAct (2주차)
 import os
-_AGENT_MODE = os.getenv("AGENT_MODE", "graph")
+_AGENT_MODE = os.getenv("AGENT_MODE", "react")
 
 if _AGENT_MODE == "graph":
     _agent_service = GraphAgentService()
