@@ -203,8 +203,9 @@ def create_deep_real_estate_agent(checkpointer=None):
     - write_todos: 복합 질문을 단계별로 분해
     - VFS: 중간 결과를 파일로 저장 (토큰 절약)
     - task(): 서브에이전트에게 작업 위임 (컨텍스트 격리)
+    - 서브에이전트 3개: DataCollector, Analyst, Reporter
     """
-    from deepagents import create_deep_agent
+    from deepagents import create_deep_agent, SubAgent
 
     model = ChatOpenAI(
         model=settings.OPENAI_MODEL,
@@ -217,11 +218,49 @@ def create_deep_real_estate_agent(checkpointer=None):
     if checkpointer is None:
         checkpointer = InMemorySaver()
 
+    # 서브에이전트 3개 정의
+    data_collector: SubAgent = {
+        "name": "data-collector",
+        "description": "부동산 실거래가 데이터를 수집합니다. 매매/전월세 실거래가 API 조회, ES 캐시 검색, PDF 보고서 검색을 담당합니다.",
+        "system_prompt": (
+            "당신은 부동산 데이터 수집 전문가입니다. "
+            "주어진 지역과 조건에 맞는 실거래가 데이터를 조회하고, "
+            "필요 시 PDF 보고서에서 관련 정보를 검색합니다. "
+            "수집한 데이터는 파일로 저장하여 다른 에이전트가 활용할 수 있게 하세요."
+        ),
+        "tools": [search_apartment_trades, search_apartment_rentals, search_pdf_reports],
+    }
+
+    analyst: SubAgent = {
+        "name": "analyst",
+        "description": "수집된 부동산 데이터를 분석합니다. 전세가율 계산, 지역 간 비교, 시장 동향 분석을 담당합니다.",
+        "system_prompt": (
+            "당신은 부동산 데이터 분석 전문가입니다. "
+            "수집된 실거래가 데이터와 PDF 보고서를 바탕으로 "
+            "전세가율, 가격 추이, 지역 간 비교 분석을 수행합니다. "
+            "분석 결과에는 반드시 수치 근거를 포함하세요."
+        ),
+        "tools": [calculate_jeonse_ratio, search_apartment_trades, search_apartment_rentals],
+    }
+
+    reporter: SubAgent = {
+        "name": "reporter",
+        "description": "분석 결과를 바탕으로 사용자에게 보여줄 종합 리포트를 작성합니다.",
+        "system_prompt": (
+            "당신은 부동산 리포트 작성 전문가입니다. "
+            "수집된 데이터와 분석 결과를 종합하여 사용자가 이해하기 쉬운 리포트를 작성합니다. "
+            "이모지 섹션 헤더(📊, 📈, 💡), 구분선(────), ▸ 수치 표기를 사용하세요. "
+            "마크다운 문법(**, ##)은 사용하지 마세요. "
+            "출처(PDF 파일명, 데이터 기준일)를 반드시 표기하세요."
+        ),
+    }
+
     agent = create_deep_agent(
         model=model,
         tools=[search_apartment_trades, search_apartment_rentals, calculate_jeonse_ratio, search_pdf_reports],
         system_prompt=get_system_prompt(),
         response_format=ToolStrategy(ChatResponse),
+        subagents=[data_collector, analyst, reporter],
         checkpointer=checkpointer,
     )
 
