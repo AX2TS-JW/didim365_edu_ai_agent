@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 
 chat_router = APIRouter()
 
-# 에이전트 모드: "graph" = StateGraph (3주차), "react" = ReAct (2주차)
+# 에이전트 모드: "react" = ReAct 메인 + StateGraph 서브에이전트 (기본), "graph" = StateGraph 전체 에이전트
 import os
 _AGENT_MODE = os.getenv("AGENT_MODE", "react")
 
