@@ -33,7 +33,9 @@ class GraphAgentService:
         """StateGraph 에이전트를 생성합니다."""
         if self.checkpointer is None:
             try:
-                self.checkpointer = AsyncSqliteSaver.from_conn_string("checkpoints.db")
+                import aiosqlite
+                conn = await aiosqlite.connect("checkpoints.db")
+                self.checkpointer = AsyncSqliteSaver(conn)
                 custom_logger.info("[Graph] AsyncSqliteSaver 초기화 (checkpoints.db)")
             except Exception as e:
                 custom_logger.warning(f"[Graph] SqliteSaver 실패, InMemorySaver 사용: {e}")

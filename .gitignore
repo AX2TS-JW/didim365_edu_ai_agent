@@ -26,3 +26,4 @@ edu_ai_agent/agent/scripts/output/
 # Claude Code
 .claude/
 edu_ai_agent/agent/.deepeval/
+edu_ai_agent/agent/checkpoints.db
