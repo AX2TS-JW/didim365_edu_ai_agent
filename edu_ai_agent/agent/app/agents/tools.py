@@ -413,7 +413,13 @@ def _format_trades(trades: list, region: str, region_code: str, year_month: str,
         avg_p = sum(prices) / len(prices)
         max_p = max(prices)
         min_p = min(prices)
-        stats = f"\n■ 요약 통계 ({total}건 전체 기준): 평균 {avg_p/10000:.1f}억원 | 최고 {max_p/10000:.1f}억원 | 최저 {min_p/10000:.1f}억원\n"
+        stats = (
+            f"\n┌─────────── 요약 ({total}건 전체 기준) ───────────┐\n"
+            f"│  📈 최고  {max_p/10000:.1f}억원\n"
+            f"│  📊 평균  {avg_p/10000:.1f}억원\n"
+            f"│  📉 최저  {min_p/10000:.1f}억원\n"
+            f"└──────────────────────────────────┘\n"
+        )
 
     # 상위 5건
     top_lines = [_format_one_trade(t, from_es) for t in valid_sorted[:5]]
@@ -482,7 +488,13 @@ def _format_rentals(rentals: list, region: str, region_code: str, year_month: st
         avg_d = sum(deposits) / len(deposits)
         max_d = max(deposits)
         min_d = min(deposits)
-        stats = f"\n■ 보증금 요약 ({total}건 전체 기준): 평균 {avg_d/10000:.1f}억원 | 최고 {max_d/10000:.1f}억원 | 최저 {min_d/10000:.1f}억원\n"
+        stats = (
+            f"\n┌─────────── 보증금 요약 ({total}건 전체 기준) ───────────┐\n"
+            f"│  📈 최고  {max_d/10000:.1f}억원\n"
+            f"│  📊 평균  {avg_d/10000:.1f}억원\n"
+            f"│  📉 최저  {min_d/10000:.1f}억원\n"
+            f"└──────────────────────────────────────┘\n"
+        )
 
     # 상위 5건
     top_lines = [_format_one_rental(t, from_es) for t in sorted_rentals[:5]]
