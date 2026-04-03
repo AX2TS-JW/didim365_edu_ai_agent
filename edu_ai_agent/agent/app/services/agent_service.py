@@ -61,8 +61,10 @@ class AgentService:
             custom_logger.info(f"사용자 메시지: {user_messages}")
 
             # Tool 호출 횟수 제한 (무한 루프 방지)
-            # 비교/추론 질문은 2개 도구 + 재시도가 필요하므로 5회로 상향
-            MAX_TOOL_CALLS = 5
+            # Deep Agent: 서브에이전트+VFS+todos 포함 15회, ReAct: 5회
+            import os
+            agent_mode = os.getenv("AGENT_MODE", "react")
+            MAX_TOOL_CALLS = 15 if agent_mode == "deep" else 5
             tool_call_count = 0
             tool_limit_reached = False  # 제한 도달 시 스트림을 끝까지 소비하기 위한 플래그
 
