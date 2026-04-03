@@ -59,14 +59,16 @@ const api = {
   stream: async(url, data = {}, onChunk) => {
     try{
       const controller = new AbortController();
-      await fetchEventSource(url, { 
+      await fetchEventSource(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream'
         },
         body: JSON.stringify(data),
-        
+        signal: controller.signal,  // AbortController 연결
+        openWhenHidden: true,       // 탭 전환 시 재연결 방지
+
         async onopen(res) {
           if(!res.ok){
             controller.abort();
@@ -80,16 +82,28 @@ const api = {
             const { step, toolCalls, content, metadata, name } = convertKeysToCamelCase(data) as ChatResponse;
 
             onChunk(step, content, metadata, toolCalls, name);
+
+            // done 이벤트 수신 시 SSE 연결 종료 (재연결 방지)
+            if(step === 'done') {
+              controller.abort();
+            }
           } catch(err) {
             console.log(err);
           }
         },
+        onclose() {
+          // 서버가 연결을 닫으면 재연결하지 않음
+          controller.abort();
+        },
         onerror(err){
           console.log(err);
-          throw err;  // 자동 재연결 중단 — SSE 종료 후 재전송 방지
+          controller.abort();
+          throw err;  // 자동 재연결 완전 중단
         }
       })
     } catch(err) {
+      // AbortError는 정상 종료이므로 무시
+      if(err instanceof DOMException && err.name === 'AbortError') return;
       console.log(err)
     }
   } 
