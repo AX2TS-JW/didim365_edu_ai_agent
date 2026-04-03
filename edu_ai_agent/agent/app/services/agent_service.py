@@ -229,6 +229,18 @@ class AgentService:
                                     custom_logger.info("========================================")
                                     custom_logger.info(args)
                                     yield f'{{"step": "done", "message_id": {json.dumps(args.get("message_id"))}, "role": "assistant", "content": {json.dumps(args.get("content"), ensure_ascii=False)}, "metadata": {json.dumps(self._handle_metadata(metadata), ensure_ascii=False)}, "created_at": "{datetime.utcnow().isoformat()}"}}'
+                                    # done 전송 후 남은 stream을 background에서 drain
+                                    # (SSE 연결 끊김과 무관하게 LangGraph stream을 끝까지 소비 → GeneratorExit/CancelledError 방지)
+                                    async def _drain_stream(iterator):
+                                        try:
+                                            async for _ in iterator:
+                                                pass
+                                            custom_logger.info("Stream drain 완료")
+                                        except Exception as drain_err:
+                                            custom_logger.debug(f"Stream drain 중 무시된 에러: {drain_err}")
+                                    asyncio.ensure_future(_drain_stream(agent_iterator))
+                                    agent_task = None
+                                    break
                                 else:
                                     yield f'{{"step": "model", "tool_calls": {json.dumps([tool["name"] for tool in tool_calls])}}}'
                             if step == "tools":
@@ -273,15 +285,18 @@ class AgentService:
                     break
                 yield json.dumps(remaining, ensure_ascii=False)
 
+        except GeneratorExit:
+            # 프론트엔드가 SSE 연결을 끊으면 발생 — 정상 종료로 처리
+            custom_logger.info("process_query: SSE 연결 종료 (클라이언트 disconnect)")
         except Exception as e:
             import traceback
             error_trace = traceback.format_exc()
             custom_logger.error(f"Error in process_query: {e}")
             custom_logger.error(error_trace)
-            
+
             error_content = f"처리 중 오류가 발생했습니다. 다시 시도해주세요."
             error_metadata = {}
-            
+
             # 에러 응답을 스트리밍으로 전송 (HTTPException 대신)
             error_response = {
                 "step": "done",

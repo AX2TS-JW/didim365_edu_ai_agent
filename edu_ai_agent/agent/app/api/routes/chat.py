@@ -82,6 +82,9 @@ async def post_chat(request: ChatRequest):
                         pass  # JSON 파싱 실패 시 원본 그대로 전달
 
                     yield f"data: {chunk}\n\n"
+            except GeneratorExit:
+                # 프론트엔드가 done 수신 후 SSE 연결을 끊으면 발생 — 정상 종료
+                custom_logger.info("SSE 연결 종료 (클라이언트 disconnect)")
             except Exception as e:
                 # 스트리밍 중 예외 발생 시 에러 메시지를 스트리밍으로 전송
                 error_response = {
