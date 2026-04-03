@@ -120,20 +120,58 @@ class AgentService:
                         # (이미 강제 응답을 전송했으므로 에러 메시지로 덮어씌우지 않음)
                         if tool_limit_reached:
                             custom_logger.info("Tool 제한 후 스트림 소비 중 에러 — 무시 (이미 응답 전송됨)")
+                            # 체크포인트 정합성 복구: 미완료 tool_calls 패치
+                            try:
+                                from langchain_core.messages import ToolMessage as PatchToolMessage
+                                config = {"configurable": {"thread_id": str(thread_id)}}
+                                state = await self.agent.aget_state(config)
+                                messages = state.values.get("messages", [])
+                                if messages and hasattr(messages[-1], 'tool_calls') and messages[-1].tool_calls:
+                                    patches = []
+                                    for tc in messages[-1].tool_calls:
+                                        patches.append(PatchToolMessage(
+                                            content="도구 호출 제한 초과로 결과 없음",
+                                            tool_call_id=tc["id"]
+                                        ))
+                                    await self.agent.aupdate_state(config, {"messages": patches})
+                                    custom_logger.info(f"Patched {len(patches)} pending tool_calls after tool limit")
+                            except Exception as patch_err:
+                                custom_logger.warning(f"Tool limit patch failed: {patch_err}")
                             agent_task = None
                             break
 
-                        # tool_calls/tool_call_id 불일치: checkpointer 상태 깨짐 → 초기화 후 재시도
+                        # tool_calls/tool_call_id 불일치: 체크포인트 정합성 복구 후 재시도
                         error_str = str(e)
                         if "tool_calls" in error_str and "tool_call_id" in error_str and retry_count < MAX_RETRIES:
                             retry_count += 1
                             custom_logger.warning(
                                 f"Corrupted thread state detected (thread={thread_id}). "
-                                f"Resetting checkpointer and retrying ({retry_count}/{MAX_RETRIES})."
+                                f"Patching pending tool_calls and retrying ({retry_count}/{MAX_RETRIES})."
                             )
-                            # checkpointer 초기화 → 다음 _create_agent에서 새로 생성
-                            self.checkpointer = None
-                            self._create_agent(thread_id=thread_id)
+
+                            # 미완료 tool_calls 패치 (정답지 방식)
+                            try:
+                                from langchain_core.messages import ToolMessage as PatchToolMessage
+                                config = {"configurable": {"thread_id": str(thread_id)}}
+                                state = await self.agent.aget_state(config)
+                                messages = state.values.get("messages", [])
+
+                                # 마지막 AIMessage에 tool_calls가 있으면 더미 ToolMessage 패치
+                                if messages and hasattr(messages[-1], 'tool_calls') and messages[-1].tool_calls:
+                                    patches = []
+                                    for tc in messages[-1].tool_calls:
+                                        patches.append(PatchToolMessage(
+                                            content="이전 요청 시간 초과로 결과 없음",
+                                            tool_call_id=tc["id"]
+                                        ))
+                                    await self.agent.aupdate_state(config, {"messages": patches})
+                                    custom_logger.info(f"Patched {len(patches)} pending tool_calls for thread {thread_id}")
+                            except Exception as patch_err:
+                                custom_logger.error(f"Failed to patch tool_calls: {patch_err}")
+                                # 패치 실패 시 체크포인터 초기화
+                                self.checkpointer = None
+                                self._create_agent(thread_id=thread_id)
+
                             # 새 스트림으로 재시도
                             agent_stream = self.agent.astream(
                                 {"messages": [HumanMessage(content=user_messages)]},
