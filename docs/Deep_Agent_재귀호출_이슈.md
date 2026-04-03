@@ -154,7 +154,66 @@ onerror(err) {
 
 ---
 
-## 7. 설정 값 변경 이력
+## 7. 두 가지 제한의 역할과 관계
+
+에이전트에는 **서로 다른 계층**에서 동작하는 두 가지 안전장치가 있다.
+
+### MAX_TOOL_CALLS — 사용자 관점의 비용 제어
+
+```
+의미: LLM이 도구(API)를 최대 몇 번 호출할 수 있는가
+위치: agent_service.py (서버 스트리밍 레이어)
+대상: search_apartment_trades, calculate_jeonse_ratio, task() 등 실제 도구 호출
+제외: ChatResponse (최종 답변 생성은 카운트 안 함)
+
+초과 시: "조회 가능한 데이터를 모두 확인했으나..." 강제 응답 → 정상 종료
+목적:    API 호출 비용 보호, LLM의 불필요한 반복 조회 방지
+```
+
+### DEEPAGENT_RECURSION_LIMIT — 시스템 관점의 무한 루프 방지
+
+```
+의미: StateGraph가 내부적으로 최대 몇 번 노드를 실행할 수 있는가
+위치: config.py → LangGraph compile 시 적용
+대상: LLM 호출, 도구 실행, 미들웨어(TodoList 등) — 그래프의 모든 노드
+
+초과 시: GraphRecursionError 예외 → 에러 종료
+목적:    코드 버그로 그래프가 끝없이 도는 것 방지
+```
+
+### 둘의 관계 — 왜 독립적으로 설정하면 안 되는가
+
+```
+도구 호출 1회가 소모하는 recursion 스텝:
+  ReAct:      model → tool → model = 2~3스텝
+  Deep Agent: model → TodoListMiddleware → tool → model = 3~4스텝
+
+따라서:
+  MAX_TOOL_CALLS × (스텝/도구) ≤ recursion_limit 이어야 함
+
+  MAX_TOOL_CALLS=50 × 4스텝 = 200 → recursion_limit=200으로 맞춤
+
+잘못된 설정 예시:
+  MAX_TOOL_CALLS=15, recursion_limit=25
+  → 도구 7회 × 4스텝 = 28 > 25
+  → MAX_TOOL_CALLS에 여유가 있는데 recursion_limit에 먼저 걸림
+  → GraphRecursionError (비정상 종료)
+
+이상적인 동작:
+  MAX_TOOL_CALLS가 항상 먼저 걸려서 정상 종료 (강제 응답)
+  recursion_limit은 코드 버그 시에만 동작하는 최후의 안전망
+```
+
+### 현재 설정 (최종)
+
+| 설정 | 값 | Deep Agent | ReAct |
+|------|-----|-----------|-------|
+| MAX_TOOL_CALLS | 50 (deep) / 10 (react) | 도구 50회까지 허용 | 도구 10회까지 |
+| recursion_limit | 200 | 50×4=200 맞춤 | 10×3=30이면 충분하지만 공유 |
+
+---
+
+## 8. 설정 값 변경 이력
 
 | 시점 | recursion_limit | MAX_TOOL_CALLS | 이유 |
 |------|----------------|----------------|------|
@@ -163,13 +222,15 @@ onerror(err) {
 | 4주차 Day 1 | 10 → 20 | 5 | Deep Agent 스텝 증가 |
 | 4주차 Day 5 | 20 → 25 | 5 | 여전히 부족 |
 | 4주차 Day 5 | 25 → 50 | 5 → 15 | AGENT_MODE 기본값 수정 후 |
+| 4주차 Day 5 | 50 → 200 | 15 → 50 | 정상 동작 우선, 최적화는 나중에 |
 
 ---
 
-## 8. 교훈
+## 9. 교훈
 
-1. **SDK 도입 시 내부 동작을 이해해야 함** — Deep Agent는 미들웨어가 매 스텝마다 개입하여 recursion 소모가 2배
+1. **SDK 도입 시 내부 동작을 이해해야 함** — Deep Agent는 미들웨어가 매 스텝마다 개입하여 recursion 소모가 ReAct 대비 2배
 2. **환경변수 기본값은 한 곳에서 관리** — 여러 파일에서 다른 기본값을 사용하면 디버깅이 극히 어려움
-3. **이중 제한(MAX_TOOL_CALLS + recursion_limit)은 관계를 계산해야 함** — 독립적으로 설정하면 예상치 못한 곳에서 먼저 걸림
-4. **체크포인트 정합성은 반드시 방어** — 중간 종료 시 미완료 상태가 남으면 후속 요청에서 연쇄 에러
-5. **프론트엔드 SSE 라이브러리의 기본 동작을 확인** — 자동 재연결이 오히려 문제를 유발할 수 있음
+3. **이중 제한은 관계를 계산해야 함** — `recursion_limit ≥ MAX_TOOL_CALLS × 4` 공식을 지켜야 MAX_TOOL_CALLS가 먼저 동작
+4. **일단 넉넉하게 설정하고 나중에 최적화** — 처음부터 빡빡하게 잡으면 디버깅에 시간만 소모. 동작 확인 후 줄여도 늦지 않음
+5. **체크포인트 정합성은 반드시 방어** — 중간 종료 시 미완료 tool_calls 패치 필수
+6. **프론트엔드 SSE 라이브러리의 기본 동작을 확인** — fetchEventSource 자동 재연결이 오히려 중복 요청을 유발
