@@ -262,7 +262,7 @@ def create_deep_real_estate_agent(checkpointer=None):
 
     agent = create_deep_agent(
         model=model,
-        tools=[search_apartment_trades, search_apartment_rentals, calculate_jeonse_ratio, search_pdf_reports],
+        tools=[],  # 메인은 도구 없음 — task()로 서브에이전트에게만 위임
         system_prompt=get_system_prompt(),
         response_format=ToolStrategy(ChatResponse),
         subagents=[data_collector, analyst, reporter],
