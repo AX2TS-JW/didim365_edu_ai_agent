@@ -64,7 +64,7 @@ class AgentService:
             # Deep Agent: 서브에이전트+VFS+todos 포함 15회, ReAct: 5회
             import os
             agent_mode = os.getenv("AGENT_MODE", "deep")
-            MAX_TOOL_CALLS = 15 if agent_mode == "deep" else 5
+            MAX_TOOL_CALLS = 50 if agent_mode == "deep" else 10
             tool_call_count = 0
             tool_limit_reached = False  # 제한 도달 시 스트림을 끝까지 소비하기 위한 플래그
 
