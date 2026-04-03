@@ -32,7 +32,7 @@ class AgentService:
             self.checkpointer = InMemorySaver()
 
         # AGENT_MODE=deep이면 Deep Agent, 아니면 기존 ReAct
-        agent_mode = os.getenv("AGENT_MODE", "react")
+        agent_mode = os.getenv("AGENT_MODE", "deep")
         if agent_mode == "deep":
             from app.agents.real_estate_agent import create_deep_real_estate_agent
             agent = create_deep_real_estate_agent(checkpointer=self.checkpointer)
@@ -63,7 +63,7 @@ class AgentService:
             # Tool 호출 횟수 제한 (무한 루프 방지)
             # Deep Agent: 서브에이전트+VFS+todos 포함 15회, ReAct: 5회
             import os
-            agent_mode = os.getenv("AGENT_MODE", "react")
+            agent_mode = os.getenv("AGENT_MODE", "deep")
             MAX_TOOL_CALLS = 15 if agent_mode == "deep" else 5
             tool_call_count = 0
             tool_limit_reached = False  # 제한 도달 시 스트림을 끝까지 소비하기 위한 플래그
