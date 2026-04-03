@@ -19,6 +19,7 @@ class AgentService:
         self.agent = None
         self.checkpointer = None
         self.progress_queue: asyncio.Queue = asyncio.Queue()
+        self._opik_tracer: Optional[OpikTracer] = None
 
     def _create_agent(self, thread_id: uuid.UUID = None):
         """LangChain 에이전트 생성"""
@@ -44,8 +45,8 @@ class AgentService:
         # Opik 트레이싱: 에이전트 실행 과정을 자동 기록
         opik_settings = settings.OPIK
         if opik_settings and opik_settings.PROJECT:
-            tracer = OpikTracer(project_name=opik_settings.PROJECT)
-            self.agent = track_langgraph(agent, opik_tracer=tracer)
+            self._opik_tracer = OpikTracer(project_name=opik_settings.PROJECT)
+            self.agent = track_langgraph(agent, opik_tracer=self._opik_tracer)
             custom_logger.info(f"Opik 트레이싱 활성화: project={opik_settings.PROJECT}")
         else:
             self.agent = agent
@@ -67,6 +68,8 @@ class AgentService:
             MAX_TOOL_CALLS = 50 if agent_mode == "deep" else 10
             tool_call_count = 0
             tool_limit_reached = False  # 제한 도달 시 스트림을 끝까지 소비하기 위한 플래그
+            tool_call_history = []  # 자동 평가용: 호출된 도구 이력
+            start_time = datetime.utcnow()  # 자동 평가용: 응답 시간 측정
 
             # Checkpointer 상태 오류 시 자동 재시도
             MAX_RETRIES = 1
@@ -228,25 +231,35 @@ class AgentService:
                                     metadata = args.get("metadata")
                                     custom_logger.info("========================================")
                                     custom_logger.info(args)
-                                    yield f'{{"step": "done", "message_id": {json.dumps(args.get("message_id"))}, "role": "assistant", "content": {json.dumps(args.get("content"), ensure_ascii=False)}, "metadata": {json.dumps(self._handle_metadata(metadata), ensure_ascii=False)}, "created_at": "{datetime.utcnow().isoformat()}"}}'
-                                    # done 전송 후 남은 stream을 background에서 drain
-                                    # (SSE 연결 끊김과 무관하게 LangGraph stream을 끝까지 소비 → GeneratorExit/CancelledError 방지)
-                                    async def _drain_stream(iterator):
-                                        try:
-                                            async for _ in iterator:
-                                                pass
-                                            custom_logger.info("Stream drain 완료")
-                                        except Exception as drain_err:
-                                            custom_logger.debug(f"Stream drain 중 무시된 에러: {drain_err}")
-                                    asyncio.ensure_future(_drain_stream(agent_iterator))
+                                    final_answer = args.get("content", "")
+                                    yield f'{{"step": "done", "message_id": {json.dumps(args.get("message_id"))}, "role": "assistant", "content": {json.dumps(final_answer, ensure_ascii=False)}, "metadata": {json.dumps(self._handle_metadata(metadata), ensure_ascii=False)}, "created_at": "{datetime.utcnow().isoformat()}"}}'
+                                    # 자동 평가: background에서 LLM Judge + ToolUsageMetric → Opik에 점수 기록
+                                    # tracer를 캡처 (매 요청마다 새로 생성되므로 현재 인스턴스를 전달)
+                                    elapsed = (datetime.utcnow() - start_time).total_seconds()
+                                    asyncio.ensure_future(self._auto_evaluate(
+                                        question=user_messages,
+                                        answer=final_answer,
+                                        tool_call_history=list(tool_call_history),
+                                        elapsed_seconds=elapsed,
+                                        tracer=self._opik_tracer,
+                                    ))
+                                    # 남은 stream을 소비 (GeneratorExit 방지)
+                                    try:
+                                        async for _ in agent_iterator:
+                                            pass
+                                    except Exception:
+                                        pass
                                     agent_task = None
                                     break
                                 else:
+                                    for tc in tool_calls:
+                                        tool_call_history.append({"step": "model", "tool": tc["name"]})
                                     yield f'{{"step": "model", "tool_calls": {json.dumps([tool["name"] for tool in tool_calls])}}}'
                             if step == "tools":
                                 # ChatResponse는 Tool 호출 횟수에 포함하지 않음
                                 if message.name != "ChatResponse":
                                     tool_call_count += 1
+                                    tool_call_history.append({"step": "tools", "tool": message.name})
                                     custom_logger.info(f"Tool 호출 횟수: {tool_call_count}/{MAX_TOOL_CALLS}")
                                     if tool_call_count >= MAX_TOOL_CALLS:
                                         custom_logger.warning(f"Tool 호출 횟수 초과 ({MAX_TOOL_CALLS}회). 강제 응답 생성.")
@@ -318,3 +331,94 @@ class AgentService:
             for k, v in metadata.items():
                 result[k] = v
         return result
+
+    async def _auto_evaluate(self, question: str, answer: str,
+                             tool_call_history: list = None, elapsed_seconds: float = 0,
+                             tracer: Optional[OpikTracer] = None):
+        """응답 완료 후 background에서 평가 → Opik trace에 점수 기록
+
+        평가 항목:
+        1. LLM Judge (1~5점) — 답변 품질 종합 채점 (LLM 호출, 토큰 소모)
+        2. ToolUsageMetric — 도구 사용 패턴 규칙 기반 평가 (무료)
+        """
+        try:
+            tracer = tracer or self._opik_tracer
+            if not tracer:
+                return
+
+            # tracer가 flush할 시간을 줌
+            await asyncio.sleep(2)
+            tracer.flush()
+
+            # 최근 trace_id 획득
+            traces = tracer.created_traces()
+            if not traces:
+                custom_logger.debug("Auto-eval: tracer.created_traces() 비어있음, Opik API로 조회 시도")
+                import opik
+                client = opik.Opik()
+                opik_settings = settings.OPIK
+                project_name = opik_settings.PROJECT if opik_settings else None
+                if not project_name:
+                    return
+                api_traces = client.search_traces(project_name=project_name, max_results=1)
+                if not api_traces:
+                    custom_logger.debug("Auto-eval: Opik API에서도 trace 없음, 스킵")
+                    return
+                trace_id = api_traces[0].id
+            else:
+                trace_id = traces[-1].id
+
+            scores = []
+
+            # ── 1. ToolUsageMetric (규칙 기반, 무료) ──
+            from app.evaluation.tool_usage_metric import ToolUsageMetric
+            tool_metric = ToolUsageMetric()
+            tool_result = tool_metric.evaluate(
+                case={},  # expected 없이 기본 체크만
+                trace={
+                    "tool_calls": tool_call_history or [],
+                    "final_answer": answer,
+                    "elapsed_seconds": elapsed_seconds,
+                },
+            )
+            scores.append({
+                "id": trace_id,
+                "name": "tool_usage_score",
+                "value": tool_result["score"],
+                "reason": tool_result["summary"],
+            })
+            # 개별 체크 항목도 기록
+            for check in tool_result.get("checks", []):
+                scores.append({
+                    "id": trace_id,
+                    "name": f"tool_{check['name']}",
+                    "value": 1.0 if check["pass"] else 0.0,
+                    "reason": check["detail"],
+                })
+
+            # ── 2. LLM Judge (LLM 호출, 토큰 소모) ──
+            from app.evaluation.llm_judge import LLMJudge
+            judge = LLMJudge()
+            loop = asyncio.get_event_loop()
+            judge_result = await loop.run_in_executor(
+                None, lambda: judge.evaluate(question=question, answer=answer)
+            )
+            scores.append({
+                "id": trace_id,
+                "name": "llm_judge_score",
+                "value": judge_result.score / 5.0,
+                "reason": judge_result.reasoning,
+            })
+
+            # ── Opik에 일괄 기록 ──
+            import opik
+            client = opik.Opik()
+            client.log_traces_feedback_scores(scores=scores)
+            custom_logger.info(
+                f"Auto-eval 완료: trace={trace_id}, "
+                f"tool_usage={tool_result['score']}, "
+                f"llm_judge={judge_result.score}/5"
+            )
+
+        except Exception as e:
+            custom_logger.warning(f"Auto-eval 실패 (무시): {e}")
