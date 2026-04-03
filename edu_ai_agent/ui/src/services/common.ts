@@ -86,6 +86,7 @@ const api = {
         },
         onerror(err){
           console.log(err);
+          throw err;  // 자동 재연결 중단 — SSE 종료 후 재전송 방지
         }
       })
     } catch(err) {
